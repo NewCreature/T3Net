@@ -86,18 +86,26 @@ int t3net_update_server_list(T3NET_SERVER_LIST * lp)
 	curl = curl_easy_init();
 	if(!curl)
 	{
+		free(data);
 		return 0;
 	}
 	sprintf(url_w_arg, "%s?game=%s&version=%s", lp->url, lp->game, lp->version);
 	curl_easy_setopt(curl, CURLOPT_URL, url_w_arg);
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, t3net_internal_write_function);
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, data);
-    curl_easy_perform(curl);
+	curl_easy_setopt(curl, CURLOPT_TIMEOUT, T3NET_TIMEOUT_TIME); // timeout after 10 seconds
+    if(curl_easy_perform(curl)) // check for error
+    {
+		curl_easy_cleanup(curl);
+		free(data);
+		return 0;
+	}
     curl_easy_cleanup(curl);
     
     top_node = mxmlLoadString(NULL, data, NULL);
     if(!top_node)
     {
+		free(data);
 		return 0;
 	}
 	
@@ -240,6 +248,7 @@ char * t3net_register_server(char * url, char * game, char * version, char * nam
 	curl = curl_easy_init();
 	if(!curl)
 	{
+		free(data);
 		return NULL;
 	}
 	t3net_strcpy(tname, name);
@@ -247,7 +256,13 @@ char * t3net_register_server(char * url, char * game, char * version, char * nam
 	curl_easy_setopt(curl, CURLOPT_URL, url_w_arg);
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, t3net_internal_write_function);
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, data);
-    curl_easy_perform(curl);
+	curl_easy_setopt(curl, CURLOPT_TIMEOUT, T3NET_TIMEOUT_TIME);
+	if(curl_easy_perform(curl))
+	{
+		curl_easy_cleanup(curl);
+		free(data);
+		return NULL;
+	}
     curl_easy_cleanup(curl);
     
 	/* see if we got a key */
@@ -277,27 +292,35 @@ char * t3net_register_server(char * url, char * game, char * version, char * nam
 int t3net_update_server(char * url, char * key, char * capacity)
 {
 	CURL * curl;
-//	char * data = NULL;
+	char * data = NULL;
 	char url_w_arg[1024] = {0};
 
-//	data = malloc(65536);
-//	if(!data)
-//	{
-//		return 0;
-//	}
+	data = malloc(65536);
+	if(!data)
+	{
+		return 0;
+	}
 	
 	/* make HTTP request */
 	curl = curl_easy_init();
 	if(!curl)
 	{
+		free(data);
 		return 0;
 	}
 	sprintf(url_w_arg, "%s?pollServer&key=%s&capacity=%s", url, key, capacity);
 	curl_easy_setopt(curl, CURLOPT_URL, url_w_arg);
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, t3net_internal_write_function);
-	curl_easy_setopt(curl, CURLOPT_WRITEDATA, NULL);
-    curl_easy_perform(curl);
+	curl_easy_setopt(curl, CURLOPT_WRITEDATA, data);
+	curl_easy_setopt(curl, CURLOPT_TIMEOUT, T3NET_TIMEOUT_TIME);
+    if(curl_easy_perform(curl))
+    {
+		curl_easy_cleanup(curl);
+		free(data);
+		return 0;
+	}
     curl_easy_cleanup(curl);
+    free(data);
     return 1;
 }
 
@@ -323,7 +346,12 @@ int t3net_unregister_server(char * url, char * key)
 	curl_easy_setopt(curl, CURLOPT_URL, url_w_arg);
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, t3net_internal_write_function);
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, NULL);
-    curl_easy_perform(curl);
+	curl_easy_setopt(curl, CURLOPT_TIMEOUT, T3NET_TIMEOUT_TIME);
+    if(curl_easy_perform(curl))
+    {
+		curl_easy_cleanup(curl);
+		return 0;
+	}
     curl_easy_cleanup(curl);
     return 1;
 }
@@ -409,18 +437,26 @@ int t3net_update_leaderboard(T3NET_LEADERBOARD * lp)
 	curl = curl_easy_init();
 	if(!curl)
 	{
+		free(data);
 		return 0;
 	}
 	sprintf(url_w_arg, "%s?game=%s&version=%s&mode=%s&option=%s%s&limit=%d", lp->url, lp->game, lp->version, lp->mode, lp->option, lp->ascend ? "&ascend=true" : "", lp->entries);
 	curl_easy_setopt(curl, CURLOPT_URL, url_w_arg);
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, t3net_internal_write_function);
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, data);
-    curl_easy_perform(curl);
+	curl_easy_setopt(curl, CURLOPT_TIMEOUT, T3NET_TIMEOUT_TIME);
+	if(curl_easy_perform(curl))
+	{
+		curl_easy_cleanup(curl);
+		free(data);
+		return 0;
+	}
     curl_easy_cleanup(curl);
     
     top_node = mxmlLoadString(NULL, data, NULL);
     if(!top_node)
     {
+		free(data);
 		return 0;
 	}
 	
@@ -558,6 +594,7 @@ int t3net_upload_score(char * url, char * game, char * version, char * mode, cha
 	curl = curl_easy_init();
 	if(!curl)
 	{
+		free(data);
 		return 0;
 	}
 	t3net_strcpy(tname, name);
@@ -566,7 +603,13 @@ int t3net_upload_score(char * url, char * game, char * version, char * mode, cha
 	curl_easy_setopt(curl, CURLOPT_URL, url_w_arg);
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, t3net_internal_write_function);
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, data);
-    curl_easy_perform(curl);
+	curl_easy_setopt(curl, CURLOPT_TIMEOUT, T3NET_TIMEOUT_TIME);
+    if(curl_easy_perform(curl))
+    {
+		curl_easy_cleanup(curl);
+		free(data);
+		return 0;
+	}
     curl_easy_cleanup(curl);
     
     return 1;

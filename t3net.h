@@ -2,6 +2,7 @@
 #define T3NET_H
 
 #define T3NET_MAX_SERVERS 256
+#define T3NET_TIMEOUT_TIME 10
 
 typedef struct
 {
