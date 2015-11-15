@@ -3,8 +3,8 @@
 #include <string.h>
 #include <curl/curl.h>
 #include "t3net.h"
+#include "internal.h"
 
-static char t3net_server_key[1024] = {0};
 char t3net_server_message[1024] = {0};
 
 static int t3net_stdio_strget_proc(const char * s, int point)
@@ -76,21 +76,19 @@ void t3net_strcpy_url(char * dest, const char * src, int size)
 {
 	int i;
 	int write_pos = 0;
-
 	int c = 1;
 	int pos = 0;
-	int write_pos = 0;
 
 	while(c != '\0')
 	{
 		c = t3net_strget(src, pos);
 		if(c == ' ')
 		{
-			strset(dest, write_pos, '%', size);
+			t3net_strset(dest, write_pos, '%', size);
 			write_pos++;
-			strset(dest, write_pos, '2', size);
+			t3net_strset(dest, write_pos, '2', size);
 			write_pos++;
-			strset(dest, write_pos, '0', size);
+			t3net_strset(dest, write_pos, '0', size);
 			write_pos++;
 		}
 		else
@@ -102,7 +100,32 @@ void t3net_strcpy_url(char * dest, const char * src, int size)
 	}
 }
 
-static int t3net_written = 0;
+char * t3net_strcat(char * dest, const char * src, int size)
+{
+	int c = 1;
+	int write_pos = 0;
+	int i;
+
+	/* find end of destination string */
+	while(c != '\0')
+	{
+		c = t3net_strget(dest, write_pos);
+		write_pos++;
+	}
+
+	/* copy src */
+	for(i = 0; write_pos < size - 1 && i < t3net_strlen(src); i++)
+	{
+		c = t3net_strget(src, i);
+		t3net_strset(dest, write_pos, c, size);
+		write_pos++;
+	}
+	t3net_strset(dest, write_pos, '\0', size);
+
+	return dest;
+}
+
+int t3net_written = 0;
 size_t t3net_internal_write_function(void * ptr, size_t size, size_t nmemb, void * stream)
 {
 	char * str = (char *)stream;
@@ -124,7 +147,7 @@ int t3net_read_line(const char * data, char * output, int data_max, int output_m
 		c = t3net_strget(data, *text_pos);
 		if(c != '\n')
 		{
-			t3net_strset(output, outpos, c, output_pax);
+			t3net_strset(output, outpos, c, output_max);
 		}
 		else
 		{
@@ -146,14 +169,6 @@ int t3net_read_line(const char * data, char * output, int data_max, int output_m
 	}
 	return 0;
 }
-
-typedef struct
-{
-
-	char name[256];
-	char data[256];
-
-} T3NET_TEMP_ELEMENT;
 
 int t3net_get_element(const char * data, T3NET_TEMP_ELEMENT * element, int data_max)
 {
@@ -192,4 +207,43 @@ int t3net_get_element(const char * data, T3NET_TEMP_ELEMENT * element, int data_
 		read_pos++;
 	}
 	return 1;
+}
+
+char * t3net_get_data(const char * url, int data_size)
+{
+	CURL * curl;
+	char * data = NULL;
+
+	data = malloc(data_size);
+	if(!data)
+	{
+		return NULL;
+	}
+
+	/* make HTTP request */
+	curl = curl_easy_init();
+	if(!curl)
+	{
+		free(data);
+		return NULL;
+	}
+	curl_easy_setopt(curl, CURLOPT_URL, url);
+	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, t3net_internal_write_function);
+	curl_easy_setopt(curl, CURLOPT_WRITEDATA, data);
+	curl_easy_setopt(curl, CURLOPT_TIMEOUT, T3NET_TIMEOUT_TIME);
+	t3net_written = 0;
+    if(curl_easy_perform(curl))
+    {
+		curl_easy_cleanup(curl);
+		free(data);
+		return NULL;
+	}
+    curl_easy_cleanup(curl);
+	if(t3net_written >= data_size)
+	{
+		t3net_written = data_size - 1;
+	}
+	data[t3net_written] = 0;
+
+    return data;
 }

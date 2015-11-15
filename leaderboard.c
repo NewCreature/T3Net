@@ -1,3 +1,6 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include "t3net.h"
 #include "leaderboard.h"
 #include "internal.h"
@@ -26,7 +29,7 @@ T3NET_LEADERBOARD * t3net_get_leaderboard(char * url, char * game, char * versio
 		{
 			break;
 		}
-		strcpy(lp->entry[i]->name, "");
+		t3net_strcpy(lp->entry[i]->name, "", 256);
 		lp->entry[i]->score = -1;
 	}
 	if(i < entries)
@@ -39,11 +42,11 @@ T3NET_LEADERBOARD * t3net_get_leaderboard(char * url, char * game, char * versio
 		return NULL;
 	}
 	lp->entries = entries;
-	strcpy(lp->url, url);
-	strcpy(lp->game, game);
-	strcpy(lp->version, version);
-	strcpy(lp->mode, mode);
-	strcpy(lp->option, option);
+	t3net_strcpy(lp->url, url, 1024);
+	t3net_strcpy(lp->game, game, 64);
+	t3net_strcpy(lp->version, version, 64);
+	t3net_strcpy(lp->mode, mode, 64);
+	t3net_strcpy(lp->option, option, 64);
 	lp->ascend = ascend;
 	if(!t3net_update_leaderboard_2(lp))
 	{
@@ -57,13 +60,13 @@ T3NET_LEADERBOARD * t3net_get_leaderboard(char * url, char * game, char * versio
 
 int t3net_update_leaderboard_2(T3NET_LEADERBOARD * lp)
 {
-	CURL * curl;
 	char url_w_arg[1024] = {0};
 	char * data = NULL;
 	int ecount = -1;
 	unsigned int text_pos;
 	int text_max;
 	char text[256];
+	char tnum[64] = {0};
 	T3NET_TEMP_ELEMENT element;
 
 	if(!lp)
@@ -71,42 +74,34 @@ int t3net_update_leaderboard_2(T3NET_LEADERBOARD * lp)
 		return 0;
 	}
 
-	data = malloc(65536);
+	sprintf(tnum, "%d", lp->entries);
+	t3net_strcpy_url(url_w_arg, lp->url, 1024);
+	t3net_strcat(url_w_arg, "?game=", 1024);
+	t3net_strcat(url_w_arg, lp->game, 1024);
+	t3net_strcat(url_w_arg, "&version=", 1024);
+	t3net_strcat(url_w_arg, lp->version, 1024);
+	t3net_strcat(url_w_arg, "&mode=", 1024);
+	t3net_strcat(url_w_arg, lp->mode, 1024);
+	t3net_strcat(url_w_arg, "&option=", 1024);
+	t3net_strcat(url_w_arg, lp->option, 1024);
+	t3net_strcat(url_w_arg, lp->ascend ? "&ascend=true" : "", 1024);
+	t3net_strcat(url_w_arg, "&limit=", 1024);
+	t3net_strcat(url_w_arg, tnum, 1024);
+	data = t3net_get_data(url_w_arg, 65536);
 	if(!data)
 	{
 		return 0;
 	}
 
-	/* make HTTP request */
-	curl = curl_easy_init();
-	if(!curl)
-	{
-		free(data);
-		return 0;
-	}
-	sprintf(url_w_arg, "%s?game=%s&version=%s&mode=%s&option=%s%s&limit=%d", lp->url, lp->game, lp->version, lp->mode, lp->option, lp->ascend ? "&ascend=true" : "", lp->entries);
-	curl_easy_setopt(curl, CURLOPT_URL, url_w_arg);
-	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, t3net_internal_write_function);
-	curl_easy_setopt(curl, CURLOPT_WRITEDATA, data);
-	curl_easy_setopt(curl, CURLOPT_TIMEOUT, T3NET_TIMEOUT_TIME);
-	t3net_written = 0;
-	if(curl_easy_perform(curl))
-	{
-		curl_easy_cleanup(curl);
-		free(data);
-		return 0;
-	}
-    curl_easy_cleanup(curl);
-	data[t3net_written] = 0;
-
 	/* check for error */
 	if(!strncmp(data, "Error", 5))
 	{
+		free(data);
 		return 0;
 	}
 
 	text_pos = 0;
-    text_max = strlen(data);
+    text_max = t3net_strlen(data);
 
     /* skip first two lines */
     t3net_read_line(data, text, text_max, 256, &text_pos);
@@ -127,7 +122,7 @@ int t3net_update_leaderboard_2(T3NET_LEADERBOARD * lp)
 			}
 			else if(!strcmp(element.name, "extra"))
 			{
-				strcpy(lp->entry[ecount]->extra, element.data);
+				t3net_strcpy(lp->entry[ecount]->extra, element.data, 256);
 			}
 		}
 		else
@@ -166,44 +161,37 @@ void t3net_destroy_leaderboard(T3NET_LEADERBOARD * lp)
 
 int t3net_upload_score(char * url, char * game, char * version, char * mode, char * option, char * name, unsigned long score, char * extra)
 {
-	CURL * curl;
 	char * data = NULL;
 	char url_w_arg[1024] = {0};
 	char tname[256] = {0};
+	char tscore[64] = {0};
 
-	data = malloc(65536);
-	if(!data)
-	{
-		return 0;
-	}
-
-	/* make HTTP request */
-	curl = curl_easy_init();
-	if(!curl)
-	{
-		free(data);
-		return 0;
-	}
-	t3net_strcpy_url(tname, name);
 	sprintf(url_w_arg, "%s?uploadScore&game=%s&version=%s&mode=%s&option=%s&name=%s&score=%lu", url, game, version, mode, option, tname, score);
+	t3net_strcpy_url(tname, name, 256);
+	t3net_strcpy_url(url_w_arg, url, 1024);
+	sprintf(tscore, "%lu", score);
+	t3net_strcat(url_w_arg, "?uploadScore&game=", 1024);
+	t3net_strcat(url_w_arg, game, 1024);
+	t3net_strcat(url_w_arg, "&version=", 1024);
+	t3net_strcat(url_w_arg, version, 1024);
+	t3net_strcat(url_w_arg, "&mode=", 1024);
+	t3net_strcat(url_w_arg, mode, 1024);
+	t3net_strcat(url_w_arg, "&option=", 1024);
+	t3net_strcat(url_w_arg, option, 1024);
+	t3net_strcat(url_w_arg, "&name=", 1024);
+	t3net_strcat(url_w_arg, tname, 1024);
+	t3net_strcat(url_w_arg, "&score=", 1024);
+	t3net_strcat(url_w_arg, tscore, 1024);
 	if(extra)
 	{
 		strcat(url_w_arg, "&extra=");
 		strcat(url_w_arg, extra);
 	}
-//	printf("%s\n", url_w_arg);
-	curl_easy_setopt(curl, CURLOPT_URL, url_w_arg);
-	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, t3net_internal_write_function);
-	curl_easy_setopt(curl, CURLOPT_WRITEDATA, data);
-	curl_easy_setopt(curl, CURLOPT_TIMEOUT, T3NET_TIMEOUT_TIME);
-	t3net_written = 0;
-    if(curl_easy_perform(curl))
-    {
-		curl_easy_cleanup(curl);
-		free(data);
+	data = t3net_get_data(url_w_arg, 65536);
+	if(!data)
+	{
 		return 0;
 	}
-    curl_easy_cleanup(curl);
-
-    return 1;
+	free(data);
+	return 1;
 }

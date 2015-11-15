@@ -12,5 +12,9 @@ int t3net_strset(char * s, int point, int val, int size);
 int t3net_strlen(const char * s);
 void t3net_strcpy(char * dest, const char * src, int size);
 void t3net_strcpy_url(char * dest, const char * src, int size);
+char * t3net_strcat(char * dest, const char * src, int size);
+
+/* internet operations */
+char * t3net_get_data(const char * url, int data_size);
 
 #endif
