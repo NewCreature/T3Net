@@ -219,6 +219,7 @@ char * t3net_get_data(const char * url, int data_size)
 	{
 		return NULL;
 	}
+	memset(data, 0, data_size);
 
 	/* make HTTP request */
 	curl = curl_easy_init();
