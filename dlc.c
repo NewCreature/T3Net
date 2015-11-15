@@ -1,36 +1,13 @@
-#include <curl/curl.h>
 #include <memory.h>
 #include <stdlib.h>
+#include <curl/curl.h>
 #include "t3net.h"
 #include "dlc.h"
-
-static int t3net_written = 0;
-static size_t t3net_internal_write_function(void * ptr, size_t size, size_t nmemb, void * stream)
-{
-	char * str = (char *)stream;
-	if(str)
-	{
-		memcpy(&str[t3net_written], ptr, size * nmemb);
-	}
-	t3net_written += size * nmemb;
-	return size * nmemb;
-}
-
-static int t3net_dlc_read_char(const char * buffer, int max, int pos)
-{
-	int r = -1;
-
-	if(pos < max)
-	{
-		r = buffer[pos];
-	}
-	return r;
-}
+#include "internal.h"
 
 T3NET_DLC_LIST * t3net_get_dlc_list(const char * url, const char * game, int type)
 {
 	T3NET_DLC_LIST * lp = NULL;
-	CURL *curl;
 	char url_w_arg[1024] = {0};
 	char * data = NULL;
 	int loop_out = 0;
@@ -40,7 +17,10 @@ T3NET_DLC_LIST * t3net_get_dlc_list(const char * url, const char * game, int typ
 	int text_fill_pos;
 	char buf[256] = {0};
 	int text_max = 0;
+	char text[256];
 	int ret = 0;
+	char ttype[256] = {0};
+	T3NET_TEMP_ELEMENT element;
 
 	lp = malloc(sizeof(T3NET_DLC_LIST));
 	if(!lp)
@@ -49,155 +29,82 @@ T3NET_DLC_LIST * t3net_get_dlc_list(const char * url, const char * game, int typ
 	}
 	lp->items = 0;
 
-	data = malloc(65536);
-	if(!data)
+	sprintf(ttype, "%d", type);
+	t3net_strcpy(url_w_arg, url, 1024);
+	t3net_strcat(url_w_arg, "?project_id=", 1024);
+	t3net_strcat(url_w_arg, game, 1024);
+	t3net_strcat(url_w_arg, "&type=", 1024);
+	t3net_strcat(url_w_arg, ttype, 1024);
+
+	data = t3net_get_data(url_w_arg, 65536);
+
+	/* check for error */
+	if(!strncmp(data, "Error", 5))
 	{
-		goto fail_out;
+		free(data);
+		return 0;
 	}
-	memset(data, 0, 65536);
 
-	/* get info from url */
-	curl = curl_easy_init();
-	if(!curl)
+	text_pos = 0;
+    text_max = t3net_strlen(data);
+
+    /* skip first two lines */
+    t3net_read_line(data, text, text_max, 256, &text_pos);
+    t3net_read_line(data, text, text_max, 256, &text_pos);
+	while(ecount < T3NET_DLC_MAX_ITEMS)
 	{
-		goto fail_out;
-	}
-	t3net_written = 0;
-	sprintf(url_w_arg, "%s?project_id=%s&type=%d", url, game, type);
-	curl_easy_setopt(curl, CURLOPT_URL, url_w_arg);
-	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, t3net_internal_write_function);
-	curl_easy_setopt(curl, CURLOPT_WRITEDATA, data);
-	curl_easy_setopt(curl, CURLOPT_TIMEOUT, T3NET_TIMEOUT_TIME); // timeout after 10 seconds
-	ret = curl_easy_perform(curl);
-    if(ret) // check for error
-    {
-		curl_easy_cleanup(curl);
-		goto fail_out;
-	}
-    curl_easy_cleanup(curl);
-//    printf("%s\n", data);
-
-    /* create the DLC list */
-    text_pos = 0;
-    text_max = strlen(data);
-	while(!loop_out)
-	{
-		lp->item[ecount] = malloc(sizeof(T3NET_DLC_ITEM));
-		memset(lp->item[ecount], 0, sizeof(T3NET_DLC_ITEM));
-		/* read the name */
-		text_char = 0;
-		text_fill_pos = 0;
-		while(text_char != '\n' && text_char != -1)
+		if(t3net_read_line(data, text, text_max, 256, &text_pos))
 		{
-			text_char = t3net_dlc_read_char(data, text_max, text_pos);
-			lp->item[ecount]->name[text_fill_pos] = text_char;
-			text_fill_pos++;
-			text_pos++;
-		}
-		if(text_fill_pos > 0)
-		{
-			lp->item[ecount]->name[text_fill_pos - 1] = '\0';
-		}
-
-		/* read the author */
-		text_char = 0;
-		text_fill_pos = 0;
-		while(text_char != '\n' && text_char != -1)
-		{
-			text_char = t3net_dlc_read_char(data, text_max, text_pos);
-			if(text_char != '\t')
+			t3net_get_element(text, &element, text_max);
+			if(!strcmp(element.name, "name"))
 			{
-				lp->item[ecount]->author[text_fill_pos] = text_char;
-				text_fill_pos++;
+				ecount++;
+				lp->item[ecount] = malloc(sizeof(T3NET_DLC_ITEM));
+				if(lp->item[ecount])
+				{
+					memset(lp->item[ecount], 0, sizeof(T3NET_DLC_ITEM));
+					t3net_strcpy(lp->item[ecount]->name, element.data, 256);
+				}
+				else
+				{
+					free(data);
+					return 0;
+				}
 			}
-			text_pos++;
-		}
-		if(text_fill_pos > 0)
-		{
-			lp->item[ecount]->author[text_fill_pos - 1] = '\0';
-		}
-
-		/* read the description */
-		text_char = 0;
-		text_fill_pos = 0;
-		while(text_char != '\n' && text_char != -1)
-		{
-			text_char = t3net_dlc_read_char(data, text_max, text_pos);
-			if(text_char != '\t')
+			else if(!strcmp(element.name, "author"))
 			{
-				lp->item[ecount]->description[text_fill_pos] = text_char;
-				text_fill_pos++;
+				t3net_strcpy(lp->item[ecount]->author, element.data, 256);
 			}
-			text_pos++;
-		}
-		if(text_fill_pos > 0)
-		{
-			lp->item[ecount]->description[text_fill_pos - 1] = '\0';
-		}
-
-		/* read the URL */
-		text_char = 0;
-		text_fill_pos = 0;
-		while(text_char != '\n' && text_char != -1)
-		{
-			text_char = t3net_dlc_read_char(data, text_max, text_pos);
-			if(text_char != '\t')
+			else if(!strcmp(element.name, "description"))
 			{
-				lp->item[ecount]->url[text_fill_pos] = text_char;
-				text_fill_pos++;
+				t3net_strcpy(lp->item[ecount]->description, element.data, 1024);
 			}
-			text_pos++;
-		}
-		if(text_fill_pos > 0)
-		{
-			lp->item[ecount]->url[text_fill_pos - 1] = '\0';
-		}
-
-		/* read the preview URL */
-		text_char = 0;
-		text_fill_pos = 0;
-		while(text_char != '\n' && text_char != -1)
-		{
-			text_char = t3net_dlc_read_char(data, text_max, text_pos);
-			if(text_char != '\t')
+			else if(!strcmp(element.name, "url"))
 			{
-				lp->item[ecount]->preview_url[text_fill_pos] = text_char;
-				text_fill_pos++;
+				t3net_strcpy(lp->item[ecount]->url, element.data, 1024);
 			}
-			text_pos++;
-		}
-		if(text_fill_pos > 0)
-		{
-			lp->item[ecount]->preview_url[text_fill_pos - 1] = '\0';
-		}
-
-		/* read the hash */
-		text_char = 0;
-		text_fill_pos = 0;
-		while(text_char != '\n' && text_char != -1)
-		{
-			text_char = t3net_dlc_read_char(data, text_max, text_pos);
-			if(text_char != '\t')
+			else if(!strcmp(element.name, "preview_url"))
 			{
-				buf[text_fill_pos] = text_char;
-				text_fill_pos++;
+				t3net_strcpy(lp->item[ecount]->preview_url, element.data, 1024);
 			}
-			text_pos++;
+			else if(!strcmp(element.name, "hash"))
+			{
+				lp->item[ecount]->hash = atoi(element.data);
+			}
 		}
-		if(text_fill_pos > 0)
+		else
 		{
-			buf[text_fill_pos - 1] = '\0';
+			break;
 		}
-		lp->item[ecount]->hash = atoi(buf);
-		ecount++;
 
 		/* get out if we've reached the end of the data */
-		if(text_pos >= strlen(data))
+		if(text_pos >= text_max)
 		{
-			loop_out = 1;
 			break;
 		}
 	}
+	ecount++;
+
 	if(text_max > 0)
 	{
 		lp->items = ecount;
