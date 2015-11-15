@@ -7,30 +7,103 @@
 static char t3net_server_key[1024] = {0};
 char t3net_server_message[1024] = {0};
 
-static void t3net_strcpy(char * dest, char * src)
+static int t3net_stdio_strget_proc(const char * s, int point)
+{
+	return s[point];
+}
+
+static int t3net_stdio_strset_proc(char * dest, int point, int val, int size)
+{
+	if(point < size)
+	{
+		dest[point] = val;
+	}
+	return 1;
+}
+
+static int (*t3net_strget_proc)(const char * s, int point) = t3net_stdio_strget_proc;
+static int (*t3net_strset_proc)(char * s, int point, int val, int size) = t3net_stdio_strset_proc;
+
+void t3net_set_str_functions(int (*strget_proc)(const char * s, int point), int (*strset_proc)(char * s, int point, int val, int size))
+{
+	if(t3net_strget_proc)
+	{
+		t3net_strget_proc = strget_proc;
+	}
+	if(t3net_strset_proc)
+	{
+		t3net_strset_proc = strset_proc;
+	}
+}
+
+int t3net_strget(const char * s, int point)
+{
+	return t3net_strget_proc(s, point);
+}
+
+int t3net_strset(char * s, int point, int val, int size)
+{
+	return t3net_strset_proc(s, point, val, size);
+}
+
+int t3net_strlen(const char * s)
+{
+	int c = 1;
+	int pos = 0;
+
+	while(c != '\0')
+	{
+		c = t3net_strget(s, pos);
+		pos++;
+	}
+	return pos;
+}
+
+void t3net_strcpy(char * dest, const char * src, int size)
+{
+	int c = 1;
+	int pos = 0;
+
+	while(c != '\0')
+	{
+		c = t3net_strget(src, pos);
+		t3net_strset(dest, pos, c, size);
+		pos++;
+	}
+}
+
+void t3net_strcpy_url(char * dest, const char * src, int size)
 {
 	int i;
 	int write_pos = 0;
 
-	for(i = 0; i < strlen(dest) + 1; i++)
+	int c = 1;
+	int pos = 0;
+	int write_pos = 0;
+
+	while(c != '\0')
 	{
-		if(src[i] == ' ')
+		c = t3net_strget(src, pos);
+		if(c == ' ')
 		{
-			dest[write_pos] = '%';
-			dest[write_pos + 1] = '2';
-			dest[write_pos + 2] = '0';
-			write_pos += 3;
+			strset(dest, write_pos, '%', size);
+			write_pos++;
+			strset(dest, write_pos, '2', size);
+			write_pos++;
+			strset(dest, write_pos, '0', size);
+			write_pos++;
 		}
 		else
 		{
-			dest[write_pos] = src[i];
+			t3net_strset(dest, pos, c, size);
 			write_pos++;
 		}
+		pos++;
 	}
 }
 
 static int t3net_written = 0;
-static size_t t3net_internal_write_function(void * ptr, size_t size, size_t nmemb, void * stream)
+size_t t3net_internal_write_function(void * ptr, size_t size, size_t nmemb, void * stream)
 {
 	char * str = (char *)stream;
 	if(str)
@@ -41,28 +114,28 @@ static size_t t3net_internal_write_function(void * ptr, size_t size, size_t nmem
 	return size * nmemb;
 }
 
-static int t3net_read_line(const char * data, char * output, int data_max, int output_max, unsigned int * text_pos)
+int t3net_read_line(const char * data, char * output, int data_max, int output_max, unsigned int * text_pos)
 {
 	int outpos = 0;
 	int c;
 
 	while(1)
 	{
-		c = data[*text_pos];
+		c = t3net_strget(data, *text_pos);
 		if(c != '\n')
 		{
-			output[outpos] = c;
+			t3net_strset(output, outpos, c, output_pax);
 		}
 		else
 		{
-			output[outpos] = '\0';
+			t3net_strset(output, outpos, '\0', output_max);
 			(*text_pos)++;
 			return 1;
 		}
 		outpos++;
 		if(outpos >= output_max - 1)
 		{
-			output[outpos] = '\0';
+			t3net_strset(output, outpos, '\0', output_max);
 			return 1;
 		}
 		(*text_pos)++;
@@ -82,7 +155,7 @@ typedef struct
 
 } T3NET_TEMP_ELEMENT;
 
-static int t3net_get_element(const char * data, T3NET_TEMP_ELEMENT * element, int data_max)
+int t3net_get_element(const char * data, T3NET_TEMP_ELEMENT * element, int data_max)
 {
 	int outpos = 0;
 	int c;
@@ -91,7 +164,7 @@ static int t3net_get_element(const char * data, T3NET_TEMP_ELEMENT * element, in
 	/* read element name */
 	while(1)
 	{
-		c = data[read_pos];
+		c = t3net_strget(data, read_pos);
 
 		if(c == ':')
 		{
@@ -100,9 +173,9 @@ static int t3net_get_element(const char * data, T3NET_TEMP_ELEMENT * element, in
 		}
 		else
 		{
-			element->name[outpos] = c;
+			t3net_strset(element->name, outpos, c, 256);
 			outpos++;
-			element->name[outpos] = '\0';
+			t3net_strset(element->name, outpos, '\0', 256);
 			read_pos++;
 		}
 	}
@@ -111,546 +184,12 @@ static int t3net_get_element(const char * data, T3NET_TEMP_ELEMENT * element, in
 	outpos = 0;
 	while(c != '\0' && read_pos < data_max)
 	{
-		c = data[read_pos];
+		c = t3net_strget(data, read_pos);
 
-		element->data[outpos] = c;
+		t3net_strset(element->data, outpos, c, 256);
 		outpos++;
-		element->data[outpos] = '\0';
+		t3net_strset(element->data, outpos, '\0', 256);
 		read_pos++;
 	}
 	return 1;
-}
-
-T3NET_SERVER_LIST * t3net_get_server_list(char * url, char * game, char * version)
-{
-	T3NET_SERVER_LIST * lp;
-
-	lp = malloc(sizeof(T3NET_SERVER_LIST));
-	if(!lp)
-	{
-		return NULL;
-	}
-	lp->entries = 0;
-	strcpy(lp->url, url);
-	strcpy(lp->game, game);
-	strcpy(lp->version, version);
-	if(!t3net_update_server_list_2(lp))
-	{
-		free(lp);
-		return NULL;
-	}
-	return lp;
-}
-
-int t3net_update_server_list_2(T3NET_SERVER_LIST * lp)
-{
-	CURL * curl;
-	char url_w_arg[1024] = {0};
-	char * data = NULL;
-	int ecount = 0;
-	unsigned int text_pos;
-	int text_max;
-	char text[256];
-	T3NET_TEMP_ELEMENT element;
-
-	if(!lp)
-	{
-		return 0;
-	}
-
-	data = malloc(65536);
-	if(!data)
-	{
-		return 0;
-	}
-
-	/* make HTTP request */
-	curl = curl_easy_init();
-	if(!curl)
-	{
-		free(data);
-		return 0;
-	}
-	sprintf(url_w_arg, "%s?game=%s&version=%s", lp->url, lp->game, lp->version);
-	curl_easy_setopt(curl, CURLOPT_URL, url_w_arg);
-	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, t3net_internal_write_function);
-	curl_easy_setopt(curl, CURLOPT_WRITEDATA, data);
-	curl_easy_setopt(curl, CURLOPT_TIMEOUT, T3NET_TIMEOUT_TIME);
-	t3net_written = 0;
-	if(curl_easy_perform(curl))
-	{
-		curl_easy_cleanup(curl);
-		free(data);
-		return 0;
-	}
-    curl_easy_cleanup(curl);
-	data[t3net_written] = 0;
-
-	/* check for error */
-	if(!strncmp(data, "Error", 5))
-	{
-		return 0;
-	}
-
-	text_pos = 0;
-    text_max = strlen(data);
-
-    /* skip first two lines */
-    t3net_read_line(data, text, text_max, 256, &text_pos);
-    t3net_read_line(data, text, text_max, 256, &text_pos);
-	while(ecount < T3NET_MAX_SERVERS)
-	{
-		lp->entry[ecount] = malloc(sizeof(T3NET_SERVER_LIST_ENTRY));
-		if(lp->entry[ecount])
-		{
-			memset(lp->entry[ecount], 0, sizeof(T3NET_SERVER_LIST_ENTRY));
-			if(t3net_read_line(data, text, text_max, 256, &text_pos))
-			{
-				t3net_get_element(text, &element, text_max);
-				if(!strcmp(element.name, "name"))
-				{
-					strcpy(lp->entry[ecount]->name, element.data);
-				}
-			}
-			else
-			{
-				break;
-			}
-
-			if(t3net_read_line(data, text, text_max, 256, &text_pos))
-			{
-				t3net_get_element(text, &element, text_max);
-				if(!strcmp(element.name, "ip"))
-				{
-					strcpy(lp->entry[ecount]->address, element.data);
-				}
-			}
-			else
-			{
-				break;
-			}
-
-			if(t3net_read_line(data, text, text_max, 256, &text_pos))
-			{
-				t3net_get_element(text, &element, text_max);
-				if(!strcmp(element.name, "port"))
-				{
-					lp->entry[ecount]->port = atoi(element.data);
-				}
-			}
-			else
-			{
-				break;
-			}
-
-			if(!t3net_read_line(data, text, text_max, 256, &text_pos))
-			{
-				break;
-			} // game
-			if(!t3net_read_line(data, text, text_max, 256, &text_pos))
-			{
-				break;
-			} // gametype
-			if(!t3net_read_line(data, text, text_max, 256, &text_pos))
-			{
-				break;
-			}; // mod
-
-			if(t3net_read_line(data, text, text_max, 256, &text_pos))
-			{
-				t3net_get_element(text, &element, text_max);
-				if(!strcmp(element.name, "capacity"))
-				{
-					strcpy(lp->entry[ecount]->capacity, element.data);
-				}
-			}
-			else
-			{
-				break;
-			}
-
-			if(!t3net_read_line(data, text, text_max, 256, &text_pos))
-			{
-				break;
-			} // tags
-			if(!t3net_read_line(data, text, text_max, 256, &text_pos))
-			{
-				break;
-			} // map
-			if(!t3net_read_line(data, text, text_max, 256, &text_pos))
-			{
-				break;
-			} // state
-			if(!t3net_read_line(data, text, text_max, 256, &text_pos))
-			{
-				break;
-			} // private
-
-			ecount++;
-		}
-
-		/* get out if we've reached the end of the data */
-		if(text_pos >= text_max)
-		{
-			break;
-		}
-	}
-	lp->entries = ecount;
-	free(data);
-	return 1;
-}
-
-void t3net_clear_server_list(T3NET_SERVER_LIST * lp)
-{
-	int i;
-
-	for(i = 0; i < lp->entries; i++)
-	{
-		free(lp->entry[i]);
-	}
-	lp->entries = 0;
-}
-
-void t3net_destroy_server_list(T3NET_SERVER_LIST * lp)
-{
-	t3net_clear_server_list(lp);
-	free(lp);
-}
-
-char * t3net_register_server(char * url, int port, char * game, char * version, char * name, char * password, int permanent)
-{
-	CURL * curl;
-	char * data = NULL;
-	char url_w_arg[1024] = {0};
-	char tname[256] = {0};
-	int i;
-
-	data = malloc(65536);
-	if(!data)
-	{
-		return NULL;
-	}
-
-	/* make HTTP request */
-	curl = curl_easy_init();
-	if(!curl)
-	{
-		free(data);
-		return NULL;
-	}
-	t3net_strcpy(tname, name);
-	sprintf(url_w_arg, "%s?addServer&port=%d&game=%s&version=%s&name=%s%s%s%s", url, port, game, version, tname, password ? "&password=" : "", password ? password : "", permanent ? "&no_poll=1" : "");
-	curl_easy_setopt(curl, CURLOPT_URL, url_w_arg);
-	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, t3net_internal_write_function);
-	curl_easy_setopt(curl, CURLOPT_WRITEDATA, data);
-	curl_easy_setopt(curl, CURLOPT_TIMEOUT, T3NET_TIMEOUT_TIME);
-	t3net_written = 0;
-	if(curl_easy_perform(curl))
-	{
-		curl_easy_cleanup(curl);
-		free(data);
-		return NULL;
-	}
-    curl_easy_cleanup(curl);
-	data[t3net_written] = 0;
-
-	/* see if we got a key */
-	t3net_server_key[0] = 0;
-	if(!strncmp(data, "key=", 4))
-	{
-		for(i = 4; i < strlen(data); i++)
-		{
-			t3net_server_key[i - 4] = data[i];
-		}
-		t3net_server_key[i - 4] = '\0';
-	}
-	free(data);
-    return t3net_server_key;
-}
-
-int t3net_update_server(char * url, int port, char * key, char * capacity)
-{
-	CURL * curl;
-	char * data = NULL;
-	char url_w_arg[1024] = {0};
-	int ret = 0;
-	char tcap[256] = {0};
-
-	data = malloc(65536);
-	if(!data)
-	{
-		return 0;
-	}
-
-	/* make HTTP request */
-	curl = curl_easy_init();
-	if(!curl)
-	{
-		free(data);
-		return 0;
-	}
-	t3net_strcpy(tcap, capacity);
-	sprintf(url_w_arg, "%s?pollServer&port=%d&key=%s&capacity=%s", url, port, key, tcap);
-	curl_easy_setopt(curl, CURLOPT_URL, url_w_arg);
-	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, t3net_internal_write_function);
-	curl_easy_setopt(curl, CURLOPT_WRITEDATA, data);
-	curl_easy_setopt(curl, CURLOPT_TIMEOUT, T3NET_TIMEOUT_TIME);
-	t3net_written = 0;
-    if(curl_easy_perform(curl))
-    {
-		curl_easy_cleanup(curl);
-		free(data);
-		return 0;
-	}
-	if(data[0] == 'a' && data[1] == 'c' && data[2] == 'k')
-	{
-		ret = 1;
-	}
-	else
-	{
-		ret = -1;
-	}
-	snprintf(t3net_server_message, 1024, "%s", data);
-    curl_easy_cleanup(curl);
-    free(data);
-    return ret;
-}
-
-int t3net_unregister_server(char * url, int port, char * key)
-{
-	CURL * curl;
-//	char * data = NULL;
-	char url_w_arg[1024] = {0};
-
-//	data = malloc(65536);
-//	if(!data)
-//	{
-//		return 0;
-//	}
-
-	/* make HTTP request */
-	curl = curl_easy_init();
-	if(!curl)
-	{
-		return 0;
-	}
-	sprintf(url_w_arg, "%s?removeServer&port=%d&key=%s", url, port, key);
-	curl_easy_setopt(curl, CURLOPT_URL, url_w_arg);
-	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, t3net_internal_write_function);
-	curl_easy_setopt(curl, CURLOPT_WRITEDATA, NULL);
-	curl_easy_setopt(curl, CURLOPT_TIMEOUT, T3NET_TIMEOUT_TIME);
-	t3net_written = 0;
-    if(curl_easy_perform(curl))
-    {
-		curl_easy_cleanup(curl);
-		return 0;
-	}
-    curl_easy_cleanup(curl);
-    return 1;
-}
-
-T3NET_LEADERBOARD * t3net_get_leaderboard(char * url, char * game, char * version, char * mode, char * option, int entries, int ascend)
-{
-	T3NET_LEADERBOARD * lp;
-	int i, j;
-
-	/* build leaderboard structure */
-	lp = malloc(sizeof(T3NET_LEADERBOARD));
-	if(!lp)
-	{
-		return NULL;
-	}
-	lp->entry = malloc(sizeof(T3NET_LEADERBOARD_ENTRY *) * entries);
-	if(!lp->entry)
-	{
-		free(lp);
-		return NULL;
-	}
-	for(i = 0; i < entries; i++)
-	{
-		lp->entry[i] = malloc(sizeof(T3NET_LEADERBOARD_ENTRY));
-		if(!lp->entry[i])
-		{
-			break;
-		}
-		strcpy(lp->entry[i]->name, "");
-		lp->entry[i]->score = -1;
-	}
-	if(i < entries)
-	{
-		for(j = 0; j < i; j++)
-		{
-			free(lp->entry[i]);
-		}
-		free(lp->entry);
-		return NULL;
-	}
-	lp->entries = entries;
-	strcpy(lp->url, url);
-	strcpy(lp->game, game);
-	strcpy(lp->version, version);
-	strcpy(lp->mode, mode);
-	strcpy(lp->option, option);
-	lp->ascend = ascend;
-	if(!t3net_update_leaderboard_2(lp))
-	{
-		t3net_destroy_leaderboard(lp);
-		return NULL;
-	}
-
-	/* query the server */
-	return lp;
-}
-
-int t3net_update_leaderboard_2(T3NET_LEADERBOARD * lp)
-{
-	CURL * curl;
-	char url_w_arg[1024] = {0};
-	char * data = NULL;
-	int ecount = -1;
-	unsigned int text_pos;
-	int text_max;
-	char text[256];
-	T3NET_TEMP_ELEMENT element;
-
-	if(!lp)
-	{
-		return 0;
-	}
-
-	data = malloc(65536);
-	if(!data)
-	{
-		return 0;
-	}
-
-	/* make HTTP request */
-	curl = curl_easy_init();
-	if(!curl)
-	{
-		free(data);
-		return 0;
-	}
-	sprintf(url_w_arg, "%s?game=%s&version=%s&mode=%s&option=%s%s&limit=%d", lp->url, lp->game, lp->version, lp->mode, lp->option, lp->ascend ? "&ascend=true" : "", lp->entries);
-	curl_easy_setopt(curl, CURLOPT_URL, url_w_arg);
-	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, t3net_internal_write_function);
-	curl_easy_setopt(curl, CURLOPT_WRITEDATA, data);
-	curl_easy_setopt(curl, CURLOPT_TIMEOUT, T3NET_TIMEOUT_TIME);
-	t3net_written = 0;
-	if(curl_easy_perform(curl))
-	{
-		curl_easy_cleanup(curl);
-		free(data);
-		return 0;
-	}
-    curl_easy_cleanup(curl);
-	data[t3net_written] = 0;
-
-	/* check for error */
-	if(!strncmp(data, "Error", 5))
-	{
-		return 0;
-	}
-
-	text_pos = 0;
-    text_max = strlen(data);
-
-    /* skip first two lines */
-    t3net_read_line(data, text, text_max, 256, &text_pos);
-    t3net_read_line(data, text, text_max, 256, &text_pos);
-	while(ecount < lp->entries)
-	{
-		if(t3net_read_line(data, text, text_max, 256, &text_pos))
-		{
-			t3net_get_element(text, &element, text_max);
-			if(!strcmp(element.name, "name"))
-			{
-				ecount++;
-				strcpy(lp->entry[ecount]->name, element.data);
-			}
-			else if(!strcmp(element.name, "score"))
-			{
-				lp->entry[ecount]->score = atoi(element.data);
-			}
-			else if(!strcmp(element.name, "extra"))
-			{
-				strcpy(lp->entry[ecount]->extra, element.data);
-			}
-		}
-		else
-		{
-			break;
-		}
-
-		/* get out if we've reached the end of the data */
-		if(text_pos >= text_max)
-		{
-			break;
-		}
-	}
-	ecount++;
-	lp->entries = ecount;
-	free(data);
-	return 1;
-}
-
-void t3net_clear_leaderboard(T3NET_LEADERBOARD * lp)
-{
-	lp->entries = 0;
-}
-
-void t3net_destroy_leaderboard(T3NET_LEADERBOARD * lp)
-{
-	int i;
-
-	for(i = 0; i < lp->entries; i++)
-	{
-		free(lp->entry[i]);
-	}
-	free(lp->entry);
-	free(lp);
-}
-
-int t3net_upload_score(char * url, char * game, char * version, char * mode, char * option, char * name, unsigned long score, char * extra)
-{
-	CURL * curl;
-	char * data = NULL;
-	char url_w_arg[1024] = {0};
-	char tname[256] = {0};
-
-	data = malloc(65536);
-	if(!data)
-	{
-		return 0;
-	}
-
-	/* make HTTP request */
-	curl = curl_easy_init();
-	if(!curl)
-	{
-		free(data);
-		return 0;
-	}
-	t3net_strcpy(tname, name);
-	sprintf(url_w_arg, "%s?uploadScore&game=%s&version=%s&mode=%s&option=%s&name=%s&score=%lu", url, game, version, mode, option, tname, score);
-	if(extra)
-	{
-		strcat(url_w_arg, "&extra=");
-		strcat(url_w_arg, extra);
-	}
-//	printf("%s\n", url_w_arg);
-	curl_easy_setopt(curl, CURLOPT_URL, url_w_arg);
-	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, t3net_internal_write_function);
-	curl_easy_setopt(curl, CURLOPT_WRITEDATA, data);
-	curl_easy_setopt(curl, CURLOPT_TIMEOUT, T3NET_TIMEOUT_TIME);
-	t3net_written = 0;
-    if(curl_easy_perform(curl))
-    {
-		curl_easy_cleanup(curl);
-		free(data);
-		return 0;
-	}
-    curl_easy_cleanup(curl);
-
-    return 1;
 }
