@@ -9,7 +9,7 @@ T3NET_DLC_LIST * t3net_get_dlc_list(const char * url, const char * game, int typ
 {
 	T3NET_DLC_LIST * lp = NULL;
 	char url_w_arg[1024] = {0};
-	char * data = NULL;
+	T3NET_DATA * data = NULL;
 	int loop_out = 0;
 	int ecount = 0;
 	unsigned int text_pos;
@@ -20,7 +20,8 @@ T3NET_DLC_LIST * t3net_get_dlc_list(const char * url, const char * game, int typ
 	char text[256];
 	int ret = 0;
 	char ttype[256] = {0};
-	T3NET_TEMP_ELEMENT element;
+	const char * val;
+	int i;
 
 	lp = malloc(sizeof(T3NET_DLC_LIST));
 	if(!lp)
@@ -36,86 +37,48 @@ T3NET_DLC_LIST * t3net_get_dlc_list(const char * url, const char * game, int typ
 	t3net_strcat(url_w_arg, "&type=", 1024);
 	t3net_strcat(url_w_arg, ttype, 1024);
 
-	data = t3net_get_data(url_w_arg, 65536);
-
-	/* check for error */
-	if(!strncmp(data, "Error", 5))
+	data = t3net_get_data(url_w_arg);
+	if(!data)
 	{
-		free(data);
 		return 0;
 	}
 
-	text_pos = 0;
-    text_max = t3net_strlen(data);
-
-    /* skip first two lines */
-    t3net_read_line(data, text, text_max, 256, &text_pos);
-    t3net_read_line(data, text, text_max, 256, &text_pos);
-	while(ecount < T3NET_DLC_MAX_ITEMS)
+	for(i = 0; i < data->entries; i++)
 	{
-		if(t3net_read_line(data, text, text_max, 256, &text_pos))
+		val = t3net_get_data_entry_field(data, i, "name");
+		if(val)
 		{
-			t3net_get_element(text, &element, text_max);
-			if(!strcmp(element.name, "name"))
-			{
-				ecount++;
-				lp->item[ecount] = malloc(sizeof(T3NET_DLC_ITEM));
-				if(lp->item[ecount])
-				{
-					memset(lp->item[ecount], 0, sizeof(T3NET_DLC_ITEM));
-					t3net_strcpy(lp->item[ecount]->name, element.data, 256);
-				}
-				else
-				{
-					free(data);
-					return 0;
-				}
-			}
-			else if(!strcmp(element.name, "author"))
-			{
-				t3net_strcpy(lp->item[ecount]->author, element.data, 256);
-			}
-			else if(!strcmp(element.name, "description"))
-			{
-				t3net_strcpy(lp->item[ecount]->description, element.data, 1024);
-			}
-			else if(!strcmp(element.name, "url"))
-			{
-				t3net_strcpy(lp->item[ecount]->url, element.data, 1024);
-			}
-			else if(!strcmp(element.name, "preview_url"))
-			{
-				t3net_strcpy(lp->item[ecount]->preview_url, element.data, 1024);
-			}
-			else if(!strcmp(element.name, "hash"))
-			{
-				lp->item[ecount]->hash = atoi(element.data);
-			}
+			t3net_strcpy(lp->item[i]->name, val, 256);
 		}
-		else
+		val = t3net_get_data_entry_field(data, i, "author");
+		if(val)
 		{
-			break;
+			t3net_strcpy(lp->item[i]->author, val, 256);
 		}
-
-		/* get out if we've reached the end of the data */
-		if(text_pos >= text_max)
+		val = t3net_get_data_entry_field(data, i, "description");
+		if(val)
 		{
-			break;
+			t3net_strcpy(lp->item[i]->description, val, 256);
+		}
+		val = t3net_get_data_entry_field(data, i, "url");
+		if(val)
+		{
+			t3net_strcpy(lp->item[i]->url, val, 256);
+		}
+		val = t3net_get_data_entry_field(data, i, "preview_url");
+		if(val)
+		{
+			t3net_strcpy(lp->item[i]->preview_url, val, 256);
+		}
+		val = t3net_get_data_entry_field(data, i, "hash");
+		if(val)
+		{
+			lp->item[i]->hash = atoi(val);
 		}
 	}
-	ecount++;
 
-	if(text_max > 0)
-	{
-		lp->items = ecount;
-	}
-	else
-	{
-		lp->items = 0;
-	}
-
-	/* free memory */
-	free(data);
+	lp->items = data->entries;
+	t3net_destroy_data(data);
 
 	return lp;
 
@@ -127,7 +90,7 @@ T3NET_DLC_LIST * t3net_get_dlc_list(const char * url, const char * game, int typ
 		}
 		if(data)
 		{
-			free(data);
+			t3net_destroy_data(data);
 		}
 	}
 	return NULL;
