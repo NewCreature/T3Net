@@ -646,3 +646,20 @@ void t3net_destroy_data(T3NET_DATA * data)
 		free(data);
 	}
 }
+
+const char * t3net_get_data_entry_field(T3NET_DATA * data, int entry, const char * field_name)
+{
+	int i;
+
+	if(entry < data->entries)
+	{
+		for(i = 0; i < data->entry[entry]->fields; i++)
+		{
+			if(!strcmp(data->entry[entry]->field[i]->name, field_name))
+			{
+				return data->entry[entry]->field[i]->data;
+			}
+		}
+	}
+	return NULL;
+}

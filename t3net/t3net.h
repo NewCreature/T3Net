@@ -50,4 +50,7 @@ T3NET_DATA * t3net_get_data_from_string(const char * s);
 T3NET_DATA * t3net_get_data(const char * url);
 void t3net_destroy_data(T3NET_DATA * data);
 
+/* data set operations */
+const char * t3net_get_data_entry_field(T3NET_DATA * data, int entry, const char * field_name);
+
 #endif
