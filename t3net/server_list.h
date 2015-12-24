@@ -10,6 +10,7 @@ typedef struct
 	char address[256];
 	int port;
 	char capacity[32];
+	int private;
 
 } T3NET_SERVER_LIST_ENTRY;
 

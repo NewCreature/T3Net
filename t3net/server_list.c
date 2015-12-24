@@ -31,12 +31,14 @@ T3NET_SERVER_LIST * t3net_get_server_list(char * url, char * game, char * versio
 int t3net_update_server_list_2(T3NET_SERVER_LIST * lp)
 {
 	char url_w_arg[1024] = {0};
-	char * data = NULL;
+	T3NET_DATA * data;
 	int ecount = -1;
 	unsigned int text_pos;
 	int text_max;
 	char text[256];
 	T3NET_TEMP_ELEMENT element;
+	const char * val;
+	int i;
 
 	if(!lp)
 	{
@@ -48,73 +50,47 @@ int t3net_update_server_list_2(T3NET_SERVER_LIST * lp)
 	t3net_strcat(url_w_arg, lp->game, 1024);
 	t3net_strcat(url_w_arg, "&version=", 1024);
 	t3net_strcat(url_w_arg, lp->version, 1024);
-	data = t3net_get_data(url_w_arg, 65536);
+	data = t3net_get_data(url_w_arg);
 	if(!data)
 	{
 		return 0;
 	}
 
-	/* check for error */
-	if(!strncmp(data, "Error", 5))
+	for(i = 0; i < data->entries; i++)
 	{
-		free(data);
-		return 0;
+		val = t3net_get_data_entry_field(data, i, "name");
+		if(val)
+		{
+			t3net_strcpy(lp->entry[i]->name, val, 256);
+		}
+		val = t3net_get_data_entry_field(data, i, "ip");
+		if(val)
+		{
+			t3net_strcpy(lp->entry[i]->address, val, 256);
+		}
+		val = t3net_get_data_entry_field(data, i, "port");
+		if(val)
+		{
+			lp->entry[i]->port = atoi(val);
+		}
+		val = t3net_get_data_entry_field(data, i, "capacity");
+		if(val)
+		{
+			t3net_strcpy(lp->entry[i]->capacity, val, 256);
+		}
+		val = t3net_get_data_entry_field(data, i, "private");
+		if(val)
+		{
+			lp->entry[i]->private = 0;
+			if(!strcmp(val, "true"))
+			{
+				lp->entry[i]->private = 1;
+			}
+		}
 	}
 
-	text_pos = 0;
-    text_max = t3net_strlen(data);
-
-    /* skip first two lines */
-    t3net_read_line(data, text, text_max, 256, &text_pos);
-    t3net_read_line(data, text, text_max, 256, &text_pos);
-	while(ecount < T3NET_MAX_SERVERS)
-	{
-		if(t3net_read_line(data, text, text_max, 256, &text_pos))
-		{
-			t3net_get_element(text, &element, text_max);
-			if(!strcmp(element.name, "name"))
-			{
-				ecount++;
-				lp->entry[ecount] = malloc(sizeof(T3NET_SERVER_LIST_ENTRY));
-				if(lp->entry[ecount])
-				{
-					memset(lp->entry[ecount], 0, sizeof(T3NET_SERVER_LIST_ENTRY));
-					t3net_strcpy(lp->entry[ecount]->name, element.data, 256);
-				}
-				else
-				{
-					free(data);
-					return 0;
-				}
-			}
-			else if(!strcmp(element.name, "ip"))
-			{
-				t3net_strcpy(lp->entry[ecount]->address, element.data, 256);
-			}
-			else if(!strcmp(element.name, "port"))
-			{
-				lp->entry[ecount]->port = atoi(element.data);
-			}
-			else if(!strcmp(element.name, "capacity"))
-			{
-				t3net_strcpy(lp->entry[ecount]->capacity, element.data, 32);
-			}
-		}
-		else
-		{
-			break;
-		}
-
-		/* get out if we've reached the end of the data */
-		if(text_pos >= text_max)
-		{
-			break;
-		}
-	}
-	ecount++;
-
-	lp->entries = ecount;
-	free(data);
+	lp->entries = data->entries;
+	t3net_destroy_data(data);
 	return 1;
 }
 
@@ -137,10 +113,11 @@ void t3net_destroy_server_list(T3NET_SERVER_LIST * lp)
 
 char * t3net_register_server(char * url, int port, char * game, char * version, char * name, char * password, int permanent)
 {
-	char * data = NULL;
+	T3NET_DATA * data;
 	char url_w_arg[1024] = {0};
 	char tname[256] = {0};
 	char tport[64] = {0};
+	const char * val;
 	int i;
 
 	sprintf(tport, "%d", port);
@@ -158,7 +135,7 @@ char * t3net_register_server(char * url, int port, char * game, char * version, 
 	t3net_strcat(url_w_arg, password ? "&password=" : "", 1024);
 	t3net_strcat(url_w_arg, permanent ? "&no_poll=1" : "", 1024);
 
-	data = t3net_get_data(url_w_arg, 65536);
+	data = t3net_get_data(url_w_arg);
 	if(!data)
 	{
 		return NULL;
@@ -166,21 +143,21 @@ char * t3net_register_server(char * url, int port, char * game, char * version, 
 
 	/* see if we got a key */
 	t3net_server_key[0] = 0;
-	if(!strncmp(data, "key=", 4))
+	if(data->entries > 0)
 	{
-		for(i = 4; i < t3net_strlen(data); i++)
+		val = t3net_get_data_entry_field(data, 0, "key");
+		if(val)
 		{
-			t3net_strset(t3net_server_key, i - 4, data[i], 1024);
+			t3net_strcpy(t3net_server_key, val, 1024);
 		}
-		t3net_strset(t3net_server_key, i - 4, '\0', 1024);
 	}
-	free(data);
+	t3net_destroy_data(data);
     return t3net_server_key;
 }
 
 int t3net_update_server(char * url, int port, char * key, char * capacity)
 {
-	char * data = NULL;
+	T3NET_DATA * data = NULL;
 	char url_w_arg[1024] = {0};
 	int ret = 0;
 	char tcap[256] = {0};
@@ -196,23 +173,18 @@ int t3net_update_server(char * url, int port, char * key, char * capacity)
 	t3net_strcat(url_w_arg, key, 1024);
 	t3net_strcat(url_w_arg, "&capacity=", 1024);
 	t3net_strcat(url_w_arg, tcap, 1024);
-	data = t3net_get_data(url_w_arg, 65536);
-	if(data[0] == 'a' && data[1] == 'c' && data[2] == 'k')
+	data = t3net_get_data(url_w_arg);
+	if(!data)
 	{
-		ret = 1;
+		return -1;
 	}
-	else
-	{
-		ret = -1;
-	}
-	t3net_strcpy(t3net_server_message, data, 1024);
-    free(data);
-    return ret;
+    t3net_destroy_data(data);
+    return 1;
 }
 
 int t3net_unregister_server(char * url, int port, char * key)
 {
-	char * data = NULL;
+	T3NET_DATA * data = NULL;
 	char url_w_arg[1024] = {0};
 	char tport[256] = {0};
 
@@ -222,11 +194,11 @@ int t3net_unregister_server(char * url, int port, char * key)
 	t3net_strcat(url_w_arg, tport, 1024);
 	t3net_strcat(url_w_arg, "&key=", 1024);
 	t3net_strcat(url_w_arg, key, 1024);
-	data = t3net_get_data(url_w_arg, 1024);
+	data = t3net_get_data(url_w_arg);
 	if(!data)
 	{
 		return 0;
 	}
-	free(data);
+	t3net_destroy_data(data);
     return 1;
 }
