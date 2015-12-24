@@ -66,7 +66,6 @@ int t3net_update_leaderboard_2(T3NET_LEADERBOARD * lp)
 	int text_max;
 	char text[256];
 	char tnum[64] = {0};
-	T3NET_TEMP_ELEMENT element;
 	const char * val;
 	T3NET_DATA * data;
 	int i;

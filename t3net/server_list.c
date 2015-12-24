@@ -36,7 +36,6 @@ int t3net_update_server_list_2(T3NET_SERVER_LIST * lp)
 	unsigned int text_pos;
 	int text_max;
 	char text[256];
-	T3NET_TEMP_ELEMENT element;
 	const char * val;
 	int i;
 
