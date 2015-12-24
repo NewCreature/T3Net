@@ -61,13 +61,15 @@ T3NET_LEADERBOARD * t3net_get_leaderboard(char * url, char * game, char * versio
 int t3net_update_leaderboard_2(T3NET_LEADERBOARD * lp)
 {
 	char url_w_arg[1024] = {0};
-	char * data = NULL;
 	int ecount = -1;
 	unsigned int text_pos;
 	int text_max;
 	char text[256];
 	char tnum[64] = {0};
 	T3NET_TEMP_ELEMENT element;
+	const char * val;
+	T3NET_DATA * data;
+	int i;
 
 	if(!lp)
 	{
@@ -87,58 +89,32 @@ int t3net_update_leaderboard_2(T3NET_LEADERBOARD * lp)
 	t3net_strcat(url_w_arg, lp->ascend ? "&ascend=true" : "", 1024);
 	t3net_strcat(url_w_arg, "&limit=", 1024);
 	t3net_strcat(url_w_arg, tnum, 1024);
-	data = t3net_get_data(url_w_arg, 65536);
+	data = t3net_get_data(url_w_arg);
 	if(!data)
 	{
 		return 0;
 	}
 
-	/* check for error */
-	if(!strncmp(data, "Error", 5))
+	for(i = 0; i < data->entries; i++)
 	{
-		free(data);
-		return 0;
-	}
-
-	text_pos = 0;
-    text_max = t3net_strlen(data);
-
-    /* skip first two lines */
-    t3net_read_line(data, text, text_max, 256, &text_pos);
-    t3net_read_line(data, text, text_max, 256, &text_pos);
-	while(ecount < lp->entries)
-	{
-		if(t3net_read_line(data, text, text_max, 256, &text_pos))
+		val = t3net_get_data_entry_field(data, i, "name");
+		if(val)
 		{
-			t3net_get_element(text, &element, text_max);
-			if(!strcmp(element.name, "name"))
-			{
-				ecount++;
-				strcpy(lp->entry[ecount]->name, element.data);
-			}
-			else if(!strcmp(element.name, "score"))
-			{
-				lp->entry[ecount]->score = atoi(element.data);
-			}
-			else if(!strcmp(element.name, "extra"))
-			{
-				t3net_strcpy(lp->entry[ecount]->extra, element.data, 256);
-			}
+			t3net_strcpy(lp->entry[i]->name, val, 256);
 		}
-		else
+		val = t3net_get_data_entry_field(data, i, "score");
+		if(val)
 		{
-			break;
+			lp->entry[i]->score = atoi(val);
 		}
-
-		/* get out if we've reached the end of the data */
-		if(text_pos >= text_max)
+		val = t3net_get_data_entry_field(data, i, "extra");
+		if(val)
 		{
-			break;
+			t3net_strcpy(lp->entry[i]->extra, val, 256);
 		}
 	}
-	ecount++;
-	lp->entries = ecount;
-	free(data);
+	lp->entries = data->entries;
+	t3net_destroy_data(data);
 	return 1;
 }
 
@@ -161,7 +137,7 @@ void t3net_destroy_leaderboard(T3NET_LEADERBOARD * lp)
 
 int t3net_upload_score(char * url, char * game, char * version, char * mode, char * option, char * name, unsigned long score, char * extra)
 {
-	char * data = NULL;
+	T3NET_DATA * data;
 	char url_w_arg[1024] = {0};
 	char tname[256] = {0};
 	char tscore[64] = {0};
@@ -187,11 +163,11 @@ int t3net_upload_score(char * url, char * game, char * version, char * mode, cha
 		strcat(url_w_arg, "&extra=");
 		strcat(url_w_arg, extra);
 	}
-	data = t3net_get_data(url_w_arg, 65536);
+	data = t3net_get_data(url_w_arg);
 	if(!data)
 	{
 		return 0;
 	}
-	free(data);
+	t3net_destroy_data(data);
 	return 1;
 }

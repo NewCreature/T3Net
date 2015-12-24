@@ -1,6 +1,8 @@
 #ifndef T3NET_LEADERBOARD_H
 #define T3NET_LEADERBOARD_H
 
+#include "t3net.h"
+
 typedef struct
 {
 
