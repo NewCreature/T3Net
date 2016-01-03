@@ -58,8 +58,8 @@ foreach($arguments as $filter)
 }
 
 /* Connect to database. */
-$linkID = mysql_connect($db_host, $db_user, $db_pass) or die("Could not connect to host.");
-mysql_select_db($db_database, $linkID) or die("Could not find database.");
+$linkID = mysql_connect($db_host, $db_user, $db_pass) or die("Error: Could not connect to host.");
+mysql_select_db($db_database, $linkID) or die("Error: Could not find database.");
 
 /* Build query. */
 $query = "SELECT * FROM " . $db_name;
@@ -92,8 +92,6 @@ if($limit > 0)
 {
 	$query .= " LIMIT 0 , " . $limit;
 }
-
-echo $query;
 
 $resultID = mysql_query($query, $linkID) or die("Error: Data not found.");
 
