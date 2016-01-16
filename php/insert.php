@@ -24,7 +24,7 @@ foreach($db_fields as $field)
 {
 	if(strlen($_GET[$field]) > 0)
 	{
-		$query .= ", " . mysql_real_escape_string($field) . " = '" . mysql_real_escape_string($_GET[$field]) . "'";
+		$query .= ", `" . mysql_real_escape_string($field) . "` = '" . mysql_real_escape_string($_GET[$field]) . "'";
 	}
 }
 
