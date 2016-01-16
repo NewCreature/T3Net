@@ -93,7 +93,6 @@ void t3net_strcpy(char * dest, const char * src, int size)
 
 void t3net_strcpy_url(char * dest, const char * src, int size)
 {
-	int i;
 	int write_pos = 0;
 	int c = 1;
 	int pos = 0;
@@ -122,14 +121,14 @@ void t3net_strcpy_url(char * dest, const char * src, int size)
 char * t3net_strcat(char * dest, const char * src, int size)
 {
 	int c = 1;
-	int write_pos = 0;
+	int write_pos = -1;
 	int i;
 
 	/* find end of destination string */
 	while(c != '\0')
 	{
-		c = t3net_strget(dest, write_pos, NULL);
 		write_pos++;
+		c = t3net_strget(dest, write_pos, NULL);
 	}
 
 	/* copy src */
@@ -405,7 +404,6 @@ static int t3net_count_data_entries_in_string(const char * s, int * field_max)
 		}
 		pos++;
 	}
-	printf("fields: %d\n", *field_max);
 	return entries;
 }
 
@@ -457,17 +455,21 @@ static T3NET_DATA * t3net_create_data(int max_entries, int max_fields)
 	memset(data, 0, sizeof(T3NET_DATA));
 
 	/* allocate space for data entries */
-	data->entry = malloc(sizeof(T3NET_DATA_ENTRY *) * max_entries);
-	if(!data->entry)
+	data->entry = NULL;
+	if(max_entries > 0)
 	{
-		goto error_out;
-	}
-	for(i = 0; i < max_entries; i++)
-	{
-		data->entry[i] = t3net_create_data_entry(max_fields);
-		if(!data->entry[i])
+		data->entry = malloc(sizeof(T3NET_DATA_ENTRY *) * max_entries);
+		if(!data->entry)
 		{
 			goto error_out;
+		}
+		for(i = 0; i < max_entries; i++)
+		{
+			data->entry[i] = t3net_create_data_entry(max_fields);
+			if(!data->entry[i])
+			{
+				goto error_out;
+			}
 		}
 	}
 	data->entries = max_entries;
@@ -482,13 +484,12 @@ static T3NET_DATA * t3net_create_data(int max_entries, int max_fields)
 
 T3NET_DATA * t3net_get_data_from_string(const char * raw_data)
 {
-	char text[256];
 	int text_max;
 	T3NET_DATA * data = NULL;
 	char * current_line;
 	int entries = 0;
 	int fields = 0;
-	int i, l, size;
+	int l, size;
 	int field = 0;
 	unsigned int text_pos = 0;
 	int ecount = -1;
@@ -506,7 +507,7 @@ T3NET_DATA * t3net_get_data_from_string(const char * raw_data)
 	}
 
 	entries = t3net_count_data_entries_in_string(raw_data, &fields);
-	if(entries <= 0)
+	if(entries < 0)
 	{
 		goto error_out;
 	}
@@ -631,7 +632,7 @@ static void t3net_destroy_data_entry(T3NET_DATA_ENTRY * entry)
 
 void t3net_destroy_data(T3NET_DATA * data)
 {
-	int i, j;
+	int i;
 
 	if(data)
 	{

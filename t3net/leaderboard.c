@@ -48,7 +48,7 @@ T3NET_LEADERBOARD * t3net_get_leaderboard(char * url, char * game, char * versio
 	t3net_strcpy(lp->mode, mode, 64);
 	t3net_strcpy(lp->option, option, 64);
 	lp->ascend = ascend;
-	if(!t3net_update_leaderboard_2(lp))
+	if(!t3net_update_leaderboard(lp))
 	{
 		t3net_destroy_leaderboard(lp);
 		return NULL;
@@ -58,13 +58,9 @@ T3NET_LEADERBOARD * t3net_get_leaderboard(char * url, char * game, char * versio
 	return lp;
 }
 
-int t3net_update_leaderboard_2(T3NET_LEADERBOARD * lp)
+int t3net_update_leaderboard(T3NET_LEADERBOARD * lp)
 {
 	char url_w_arg[1024] = {0};
-	int ecount = -1;
-	unsigned int text_pos;
-	int text_max;
-	char text[256];
 	char tnum[64] = {0};
 	const char * val;
 	T3NET_DATA * data;
@@ -141,11 +137,11 @@ int t3net_upload_score(char * url, char * game, char * version, char * mode, cha
 	char tname[256] = {0};
 	char tscore[64] = {0};
 
-	sprintf(url_w_arg, "%s?uploadScore&game=%s&version=%s&mode=%s&option=%s&name=%s&score=%lu", url, game, version, mode, option, tname, score);
+//	sprintf(url_w_arg, "%s?game=%s&version=%s&mode=%s&option=%s&name=%s&score=%lu", url, game, version, mode, option, tname, score);
 	t3net_strcpy_url(tname, name, 256);
 	t3net_strcpy_url(url_w_arg, url, 1024);
 	sprintf(tscore, "%lu", score);
-	t3net_strcat(url_w_arg, "?uploadScore&game=", 1024);
+	t3net_strcat(url_w_arg, "?game=", 1024);
 	t3net_strcat(url_w_arg, game, 1024);
 	t3net_strcat(url_w_arg, "&version=", 1024);
 	t3net_strcat(url_w_arg, version, 1024);
