@@ -30,7 +30,6 @@ typedef struct
 /* leaderboard download functions */
 T3NET_LEADERBOARD * t3net_get_leaderboard(char * url, char * game, char * version, char * mode, char * option, int entries, int ascend);
 int t3net_update_leaderboard(T3NET_LEADERBOARD * lp);
-int t3net_update_leaderboard_2(T3NET_LEADERBOARD * lp);
 void t3net_clear_leaderboard(T3NET_LEADERBOARD * lp);
 void t3net_destroy_leaderboard(T3NET_LEADERBOARD * lp);
 
