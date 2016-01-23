@@ -155,8 +155,8 @@ int t3net_upload_score(char * url, char * game, char * version, char * mode, cha
 	t3net_strcat(url_w_arg, tscore, 1024);
 	if(extra)
 	{
-		strcat(url_w_arg, "&extra=");
-		strcat(url_w_arg, extra);
+		t3net_strcat(url_w_arg, "&extra=", 1024);
+		t3net_strcat(url_w_arg, extra, 1024);
 	}
 	data = t3net_get_data(url_w_arg);
 	if(!data)

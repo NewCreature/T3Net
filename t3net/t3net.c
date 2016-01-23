@@ -10,74 +10,6 @@ static void t3net_destroy_data_entry(T3NET_DATA_ENTRY * entry);
 
 char t3net_server_message[1024] = {0};
 
-static int t3net_stdio_strget_proc(const char * s, int point, int * bytes)
-{
-	if(bytes)
-	{
-		*bytes = 1;
-	}
-	return s[point];
-}
-
-static int t3net_stdio_strset_proc(char * dest, int point, int val, int size)
-{
-	if(point < size)
-	{
-		dest[point] = val;
-	}
-	return 1;
-}
-
-static int (*t3net_strget_proc)(const char * s, int point, int * bytes) = t3net_stdio_strget_proc;
-static int (*t3net_strset_proc)(char * s, int point, int val, int size) = t3net_stdio_strset_proc;
-
-void t3net_set_str_functions(int (*strget_proc)(const char * s, int point, int * bytes), int (*strset_proc)(char * s, int point, int val, int size))
-{
-	if(t3net_strget_proc)
-	{
-		t3net_strget_proc = strget_proc;
-	}
-	if(t3net_strset_proc)
-	{
-		t3net_strset_proc = strset_proc;
-	}
-}
-
-int t3net_strget(const char * s, int point, int * bytes)
-{
-	return t3net_strget_proc(s, point, bytes);
-}
-
-int t3net_strset(char * s, int point, int val, int size)
-{
-	return t3net_strset_proc(s, point, val, size);
-}
-
-int t3net_strlen(const char * s, int * bytes)
-{
-	int b;
-	int c = 1;
-	int pos = 0;
-
-	if(bytes)
-	{
-		*bytes = 0;
-	}
-	while(c != '\0')
-	{
-		c = t3net_strget(s, pos, &b);
-		if(c != '\0')
-		{
-			pos++;
-		}
-		if(bytes)
-		{
-			*bytes += b;
-		}
-	}
-	return pos;
-}
-
 void t3net_strcpy(char * dest, const char * src, int size)
 {
 	int c = 1;
@@ -85,10 +17,16 @@ void t3net_strcpy(char * dest, const char * src, int size)
 
 	while(c != '\0')
 	{
-		c = t3net_strget(src, pos, NULL);
-		t3net_strset(dest, pos, c, size);
+		c = src[pos];
+		dest[pos] = c;
 		pos++;
+		if(pos >= size)
+		{
+			pos = size - 1;
+			break;
+		}
 	}
+	dest[pos] = '\0';
 }
 
 void t3net_strcpy_url(char * dest, const char * src, int size)
@@ -99,19 +37,19 @@ void t3net_strcpy_url(char * dest, const char * src, int size)
 
 	while(c != '\0')
 	{
-		c = t3net_strget(src, pos, NULL);
-		if(c == ' ')
+		c = src[pos];
+		if(c == ' ' && write_pos + 4 < size)
 		{
-			t3net_strset(dest, write_pos, '%', size);
+			dest[write_pos] = '%';
 			write_pos++;
-			t3net_strset(dest, write_pos, '2', size);
+			dest[write_pos] = '2';
 			write_pos++;
-			t3net_strset(dest, write_pos, '0', size);
+			dest[write_pos] = '0';
 			write_pos++;
 		}
 		else
 		{
-			t3net_strset(dest, pos, c, size);
+			dest[write_pos] = c;
 			write_pos++;
 		}
 		pos++;
@@ -120,26 +58,31 @@ void t3net_strcpy_url(char * dest, const char * src, int size)
 
 char * t3net_strcat(char * dest, const char * src, int size)
 {
-	int c = 1;
 	int write_pos = -1;
-	int i;
+	int c = 1;
+	int pos = 0;
 
 	/* find end of destination string */
 	while(c != '\0')
 	{
 		write_pos++;
-		c = t3net_strget(dest, write_pos, NULL);
+		c = dest[write_pos];
 	}
 
-	/* copy src */
-	for(i = 0; write_pos < size - 1 && i < t3net_strlen(src, NULL); i++)
+	c = 1;
+	/* concatenate src onto dest */
+	while(c != '\0')
 	{
-		c = t3net_strget(src, i, NULL);
-		t3net_strset(dest, write_pos, c, size);
+		c = src[pos];
+		dest[write_pos] = c;
+		pos++;
 		write_pos++;
+		if(write_pos >= size)
+		{
+			write_pos = size - 1;
+		}
 	}
-	t3net_strset(dest, write_pos, '\0', size);
-
+	dest[write_pos] = '\0';
 	return dest;
 }
 
@@ -175,36 +118,32 @@ size_t t3net_internal_write_function(void * ptr, size_t size, size_t nmemb, void
 	return realsize;
 }
 
-static int t3net_get_line_length(const char * data, unsigned int text_pos, int * bytes)
+static int t3net_get_line_length(const char * data, unsigned int text_pos)
 {
 	int length = 0;
-	int b, c;
+	int c;
 
-	*bytes = 0;
 	while(1)
 	{
-		c = t3net_strget(data, text_pos, &b);
+		c = data[text_pos];
 		if(c != '\r')
 		{
 			length++;
-			*bytes += b;
 		}
 		else if(c == '\0')
 		{
-			*bytes += b;
 			return length;
 		}
 		else
 		{
 			text_pos++;
-			c = t3net_strget(data, text_pos, &b);
+			c = data[text_pos];
 			if(c != '\n')
 			{
 				return -1;
 			}
 			else
 			{
-				*bytes += 3; // for the '\0'
 				return length;
 			}
 		}
@@ -221,16 +160,16 @@ int t3net_read_line(const char * data, char * output, int data_max, int output_m
 
 	while(1)
 	{
-		c = t3net_strget(data, *text_pos, NULL);
+		c = data[*text_pos];
 		if(c != '\r')
 		{
-			t3net_strset(output, outpos, c, output_max);
+			output[outpos] = c;
 		}
 		else
 		{
-			t3net_strset(output, outpos, '\0', output_max);
+			output[outpos] = '\0';
 			(*text_pos)++;
-			c = t3net_strget(data, *text_pos, NULL);
+			c = data[*text_pos];
 			if(c == '\n')
 			{
 				(*text_pos)++;
@@ -242,9 +181,10 @@ int t3net_read_line(const char * data, char * output, int data_max, int output_m
 			}
 		}
 		outpos++;
-		if(outpos >= output_max - 1)
+		if(outpos >= output_max)
 		{
-			t3net_strset(output, outpos, '\0', output_max);
+			outpos--;
+			output[outpos] = '\0';
 			return 1;
 		}
 		(*text_pos)++;
@@ -261,7 +201,7 @@ char * t3net_get_line(const char * data, int data_max, unsigned int * text_pos)
 	char * text_line = NULL;
 	int bytes = 0;
 
-	t3net_get_line_length(data, *text_pos, &bytes);
+	bytes = t3net_get_line_length(data, *text_pos) + 1;
 	if(bytes > 0)
 	{
 		text_line = malloc(bytes);
@@ -282,7 +222,7 @@ int t3net_get_element(const char * data, T3NET_TEMP_ELEMENT * element, int data_
 	/* read element name */
 	while(1)
 	{
-		c = t3net_strget(data, read_pos, NULL);
+		c = data[read_pos];
 
 		if(c == ':')
 		{
@@ -291,9 +231,9 @@ int t3net_get_element(const char * data, T3NET_TEMP_ELEMENT * element, int data_
 		}
 		else
 		{
-			t3net_strset(element->name, outpos, c, 256);
+			element->name[outpos] = c;
 			outpos++;
-			t3net_strset(element->name, outpos, '\0', 256);
+			element->name[outpos] = '\0';
 			read_pos++;
 		}
 	}
@@ -302,11 +242,11 @@ int t3net_get_element(const char * data, T3NET_TEMP_ELEMENT * element, int data_
 	outpos = 0;
 	while(c != '\0' && read_pos < data_max)
 	{
-		c = t3net_strget(data, read_pos, NULL);
+		c = data[read_pos];
 
-		t3net_strset(element->data, outpos, c, 256);
+		element->data[outpos] = c;
 		outpos++;
-		t3net_strset(element->data, outpos, '\0', 256);
+		element->data[outpos] = '\0';
 		read_pos++;
 	}
 	return 1;
@@ -358,7 +298,7 @@ static int t3net_count_data_entries_in_string(const char * s, int * field_max)
 	*field_max = 0;
 	while(c != '\0')
 	{
-		c = t3net_strget(s, pos, NULL);
+		c = s[pos];
 		if(step == 0)
 		{
 			if(c == '\r')
@@ -518,7 +458,7 @@ T3NET_DATA * t3net_get_data_from_string(const char * raw_data)
 	}
 
 	text_pos = 0;
-    text_max = t3net_strlen(raw_data, NULL) + 1;
+    text_max = strlen(raw_data) + 1;
 
     /* read header */
 	current_line = t3net_get_line(raw_data, text_max, &text_pos);
@@ -528,13 +468,12 @@ T3NET_DATA * t3net_get_data_from_string(const char * raw_data)
 	}
 	data->header = current_line;
 
-	/* skip empty line */
 	while(1)
 	{
 		current_line = t3net_get_line(raw_data, text_max, &text_pos);
 		if(current_line)
 		{
-			l = t3net_strlen(current_line, &size);
+			l = strlen(current_line);
 			if(l <= 0)
 			{
 				ecount++;
@@ -542,22 +481,29 @@ T3NET_DATA * t3net_get_data_from_string(const char * raw_data)
 			}
 			else
 			{
+				size = l + 1;
 				t3net_get_element(current_line, &element, size);
 
 				/* copy field name */
-				t3net_strlen(element.name, &size);
-				data->entry[ecount]->field[field]->name = malloc(size);
-				if(data->entry[ecount]->field[field]->name)
+				size = strlen(element.name) + 1;
+				if(size > 0)
 				{
-					t3net_strcpy(data->entry[ecount]->field[field]->name, element.name, size);
+					data->entry[ecount]->field[field]->name = malloc(size);
+					if(data->entry[ecount]->field[field]->name)
+					{
+						t3net_strcpy(data->entry[ecount]->field[field]->name, element.name, size);
+					}
 				}
 
 				/* copy field data */
-				t3net_strlen(element.data, &size);
-				data->entry[ecount]->field[field]->data = malloc(size);
-				if(data->entry[ecount]->field[field]->data)
+				size = strlen(element.data) + 1;
+				if(size > 0)
 				{
-					t3net_strcpy(data->entry[ecount]->field[field]->data, element.data, size);
+					data->entry[ecount]->field[field]->data = malloc(size);
+					if(data->entry[ecount]->field[field]->data)
+					{
+						t3net_strcpy(data->entry[ecount]->field[field]->data, element.data, size);
+					}
 				}
 				field++;
 			}
