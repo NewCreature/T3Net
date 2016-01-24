@@ -4,6 +4,9 @@
 ** Template for use with T3Net **
 ********************************/
 
+/* set up UTF-8 */
+ini_set('default_charset', 'utf-8')
+
 /* database info */
 $db_host = "0.0.0.0"; // address of host
 $db_user = "username"; // login credentials
@@ -59,6 +62,7 @@ foreach($arguments as $filter)
 
 /* Connect to database. */
 $linkID = mysql_connect($db_host, $db_user, $db_pass) or die("Error: Could not connect to host.\r\n");
+mysql_set_charset('utf8', $linkID);
 mysql_select_db($db_database, $linkID) or die("Error: Could not find database.\r\n");
 
 /* Build query. */
