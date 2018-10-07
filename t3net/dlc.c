@@ -1,26 +1,17 @@
+#include <curl/curl.h>
 #include <memory.h>
 #include <stdlib.h>
-#include <curl/curl.h>
 #include "t3net.h"
 #include "dlc.h"
-#include "internal.h"
 
 T3NET_DLC_LIST * t3net_get_dlc_list(const char * url, const char * game, int type)
 {
 	T3NET_DLC_LIST * lp = NULL;
-	char url_w_arg[1024] = {0};
+	T3NET_ARGUMENTS * args = NULL;
 	T3NET_DATA * data = NULL;
-	int loop_out = 0;
-	int ecount = 0;
-	unsigned int text_pos;
-	int text_char;
-	int text_fill_pos;
-	char buf[256] = {0};
-	int text_max = 0;
-	char text[256];
-	int ret = 0;
-	char ttype[256] = {0};
 	const char * val;
+	int ecount = 0;
+	char buf[256] = {0};
 	int i;
 
 	lp = malloc(sizeof(T3NET_DLC_LIST));
@@ -30,70 +21,87 @@ T3NET_DLC_LIST * t3net_get_dlc_list(const char * url, const char * game, int typ
 	}
 	lp->items = 0;
 
-	sprintf(ttype, "%d", type);
-	t3net_strcpy(url_w_arg, url, 1024);
-	t3net_strcat(url_w_arg, "?project_id=", 1024);
-	t3net_strcat(url_w_arg, game, 1024);
-	t3net_strcat(url_w_arg, "&type=", 1024);
-	t3net_strcat(url_w_arg, ttype, 1024);
-
-	data = t3net_get_data(url_w_arg);
+	args = t3net_create_arguments();
+	if(!args)
+	{
+		goto fail_out;
+	}
+	if(!t3net_add_argument(args, "project_id", game))
+	{
+		goto fail_out;
+	}
+	sprintf(buf, "%d", type);
+	if(!t3net_add_argument(args, "type", buf))
+	{
+		goto fail_out;
+	}
+	data = t3net_get_data(url, args);
 	if(!data)
 	{
-		return 0;
+		goto fail_out;
 	}
 
+    /* create the DLC list */
 	for(i = 0; i < data->entries; i++)
 	{
+		lp->item[ecount] = malloc(sizeof(T3NET_DLC_ITEM));
+		memset(lp->item[ecount], 0, sizeof(T3NET_DLC_ITEM));
 		val = t3net_get_data_entry_field(data, i, "name");
 		if(val)
 		{
-			t3net_strcpy(lp->item[i]->name, val, 256);
+			strcpy(lp->item[ecount]->name, val);
 		}
 		val = t3net_get_data_entry_field(data, i, "author");
 		if(val)
 		{
-			t3net_strcpy(lp->item[i]->author, val, 256);
+			strcpy(lp->item[ecount]->author, val);
 		}
 		val = t3net_get_data_entry_field(data, i, "description");
 		if(val)
 		{
-			t3net_strcpy(lp->item[i]->description, val, 256);
+			strcpy(lp->item[ecount]->description, val);
 		}
 		val = t3net_get_data_entry_field(data, i, "url");
 		if(val)
 		{
-			t3net_strcpy(lp->item[i]->url, val, 256);
+			strcpy(lp->item[ecount]->url, val);
 		}
 		val = t3net_get_data_entry_field(data, i, "preview_url");
 		if(val)
 		{
-			t3net_strcpy(lp->item[i]->preview_url, val, 256);
+			strcpy(lp->item[ecount]->preview_url, val);
 		}
 		val = t3net_get_data_entry_field(data, i, "hash");
 		if(val)
 		{
-			lp->item[i]->hash = atoi(val);
+			lp->item[ecount]->hash = atol(val);
 		}
+		ecount++;
 	}
+	lp->items = ecount;
 
-	lp->items = data->entries;
+	/* free memory */
+	t3net_destroy_arguments(args);
 	t3net_destroy_data(data);
 
 	return lp;
 
 	fail_out:
 	{
-		if(lp)
+		if(args)
 		{
-			free(lp);
+			t3net_destroy_arguments(args);
 		}
 		if(data)
 		{
 			t3net_destroy_data(data);
 		}
+		if(lp)
+		{
+			free(lp);
+		}
+		return NULL;
 	}
-	return NULL;
 }
 
 void t3net_destroy_dlc_list(T3NET_DLC_LIST * lp, void (*callback)(void * data))

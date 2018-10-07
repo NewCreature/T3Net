@@ -9,50 +9,63 @@ static char t3net_server_key[1024] = {0};
 
 T3NET_SERVER_LIST * t3net_get_server_list(char * url, char * game, char * version)
 {
-	T3NET_SERVER_LIST * lp;
+	T3NET_SERVER_LIST * lp = NULL;
 
 	lp = malloc(sizeof(T3NET_SERVER_LIST));
 	if(!lp)
 	{
-		return NULL;
+		goto fail;
 	}
 	lp->entries = 0;
-	t3net_strcpy_url(lp->url, url, 1024);
-	t3net_strcpy(lp->game, game, 64);
-	t3net_strcpy(lp->version, version, 64);
+	strcpy(lp->url, url);
+	strcpy(lp->game, game);
+	strcpy(lp->version, version);
 	if(!t3net_update_server_list_2(lp))
 	{
 		free(lp);
 		return NULL;
 	}
 	return lp;
+
+	fail:
+	{
+		if(lp)
+		{
+			free(lp);
+		}
+		return NULL;
+	}
 }
 
 int t3net_update_server_list_2(T3NET_SERVER_LIST * lp)
 {
-	char url_w_arg[1024] = {0};
-	T3NET_DATA * data;
-	int ecount = -1;
-	unsigned int text_pos;
-	int text_max;
-	char text[256];
+	T3NET_ARGUMENTS * args = NULL;
+	T3NET_DATA * data = NULL;
 	const char * val;
 	int i;
 
 	if(!lp)
 	{
-		return 0;
+		goto fail;
 	}
 
-	t3net_strcpy_url(url_w_arg, lp->url, 1024);
-	t3net_strcat(url_w_arg, "?game=", 1024);
-	t3net_strcat(url_w_arg, lp->game, 1024);
-	t3net_strcat(url_w_arg, "&version=", 1024);
-	t3net_strcat(url_w_arg, lp->version, 1024);
-	data = t3net_get_data(url_w_arg);
+	args = t3net_create_arguments();
+	if(!args)
+	{
+		goto fail;
+	}
+	if(!t3net_add_argument(args, "game", lp->game))
+	{
+		goto fail;
+	}
+	if(!t3net_add_argument(args, "version", lp->version))
+	{
+		goto fail;
+	}
+	data = t3net_get_data(lp->url, args);
 	if(!data)
 	{
-		return 0;
+		goto fail;
 	}
 
 	for(i = 0; i < data->entries; i++)
@@ -89,8 +102,22 @@ int t3net_update_server_list_2(T3NET_SERVER_LIST * lp)
 	}
 
 	lp->entries = data->entries;
+	t3net_destroy_arguments(args);
 	t3net_destroy_data(data);
 	return 1;
+
+	fail:
+	{
+		if(args)
+		{
+			t3net_destroy_arguments(args);
+		}
+		if(data)
+		{
+			t3net_destroy_data(data);
+		}
+		return 0;
+	}
 }
 
 void t3net_clear_server_list(T3NET_SERVER_LIST * lp)
@@ -112,32 +139,53 @@ void t3net_destroy_server_list(T3NET_SERVER_LIST * lp)
 
 char * t3net_register_server(char * url, int port, char * game, char * version, char * name, char * password, int permanent)
 {
-	T3NET_DATA * data;
-	char url_w_arg[1024] = {0};
-	char tname[256] = {0};
+	T3NET_DATA * data = NULL;
+	T3NET_ARGUMENTS * args = NULL;
 	char tport[64] = {0};
 	const char * val;
-	int i;
 
+	args = t3net_create_arguments();
+	if(!args)
+	{
+		goto fail;
+	}
 	sprintf(tport, "%d", port);
-	t3net_strcpy_url(tname, name, 256);
-	t3net_strcpy_url(url_w_arg, url, 1024);
-	t3net_strcat(url_w_arg, "?addServer&port=", 1024);
-	t3net_strcat(url_w_arg, tport, 1024);
-	t3net_strcat(url_w_arg, "&game=", 1024);
-	t3net_strcat(url_w_arg, game, 1024);
-	t3net_strcat(url_w_arg, "&version=", 1024);
-	t3net_strcat(url_w_arg, version, 1024);
-	t3net_strcat(url_w_arg, "&name=", 1024);
-	t3net_strcat(url_w_arg, tname, 1024);
-	t3net_strcat(url_w_arg, "&password=", 1024);
-	t3net_strcat(url_w_arg, password ? "&password=" : "", 1024);
-	t3net_strcat(url_w_arg, permanent ? "&no_poll=1" : "", 1024);
+	if(!t3net_add_argument(args, "addServer", "1"))
+	{
+		goto fail;
+	}
+	if(!t3net_add_argument(args, "port", tport))
+	{
+		goto fail;
+	}
+	if(!t3net_add_argument(args, "game", game))
+	{
+		goto fail;
+	}
+	if(!t3net_add_argument(args, "version", version))
+	{
+		goto fail;
+	}
+	if(!t3net_add_argument(args, "name", name))
+	{
+		goto fail;
+	}
+	if(!t3net_add_argument(args, "password", password ? password : ""))
+	{
+		goto fail;
+	}
+	if(permanent)
+	{
+		if(!t3net_add_argument(args, "no_poll", "1"))
+		{
+			goto fail;
+		}
+	}
 
-	data = t3net_get_data(url_w_arg);
+	data = t3net_get_data(url, args);
 	if(!data)
 	{
-		return NULL;
+		goto fail;
 	}
 
 	/* see if we got a key */
@@ -150,54 +198,118 @@ char * t3net_register_server(char * url, int port, char * game, char * version, 
 			t3net_strcpy(t3net_server_key, val, 1024);
 		}
 	}
+	t3net_destroy_arguments(args);
 	t3net_destroy_data(data);
     return t3net_server_key;
+
+	fail:
+	{
+		if(args)
+		{
+			t3net_destroy_arguments(args);
+		}
+		if(data)
+		{
+			t3net_destroy_data(data);
+		}
+		return NULL;
+	}
 }
 
 int t3net_update_server(char * url, int port, char * key, char * capacity)
 {
 	T3NET_DATA * data = NULL;
-	char url_w_arg[1024] = {0};
-	int ret = 0;
-	char tcap[256] = {0};
+	T3NET_ARGUMENTS * args = NULL;
 	char tport[256] = {0};
 
-
+	args = t3net_create_arguments();
+	if(!args)
+	{
+		goto fail;
+	}
 	sprintf(tport, "%d", port);
-	t3net_strcpy_url(tcap, capacity, 256);
-	t3net_strcpy_url(url_w_arg, url, 1024);
-	t3net_strcat(url_w_arg, "?pollServer&port=", 1024);
-	t3net_strcat(url_w_arg, tport, 1024);
-	t3net_strcat(url_w_arg, "&key=", 1024);
-	t3net_strcat(url_w_arg, key, 1024);
-	t3net_strcat(url_w_arg, "&capacity=", 1024);
-	t3net_strcat(url_w_arg, tcap, 1024);
-	data = t3net_get_data(url_w_arg);
+	if(!t3net_add_argument(args, "pollServer", "1"))
+	{
+		goto fail;
+	}
+	if(!t3net_add_argument(args, "port", tport))
+	{
+		goto fail;
+	}
+	if(!t3net_add_argument(args, "key", key))
+	{
+		goto fail;
+	}
+	if(!t3net_add_argument(args, "capacity", capacity))
+	{
+		goto fail;
+	}
+	data = t3net_get_data(url, args);
 	if(!data)
 	{
-		return -1;
+		goto fail;
 	}
+	t3net_destroy_arguments(args);
     t3net_destroy_data(data);
     return 1;
+
+	fail:
+	{
+		if(args)
+		{
+			t3net_destroy_arguments(args);
+		}
+		if(data)
+		{
+			t3net_destroy_data(data);
+		}
+		return -1;
+	}
 }
 
 int t3net_unregister_server(char * url, int port, char * key)
 {
 	T3NET_DATA * data = NULL;
-	char url_w_arg[1024] = {0};
+	T3NET_ARGUMENTS * args = NULL;
 	char tport[256] = {0};
 
+	args = t3net_create_arguments();
+	if(!args)
+	{
+		goto fail;
+	}
 	sprintf(tport, "%d", port);
-	t3net_strcpy(url_w_arg, url, 1024);
-	t3net_strcat(url_w_arg, "?removeServer&port=", 1024);
-	t3net_strcat(url_w_arg, tport, 1024);
-	t3net_strcat(url_w_arg, "&key=", 1024);
-	t3net_strcat(url_w_arg, key, 1024);
-	data = t3net_get_data(url_w_arg);
+	if(!t3net_add_argument(args, "removeServer", "1"))
+	{
+		goto fail;
+	}
+	if(!t3net_add_argument(args, "port", tport))
+	{
+		goto fail;
+	}
+	if(!t3net_add_argument(args, "key", key))
+	{
+		goto fail;
+	}
+	data = t3net_get_data(url, args);
 	if(!data)
 	{
-		return 0;
+		goto fail;
 	}
+	t3net_destroy_arguments(args);
 	t3net_destroy_data(data);
     return 1;
+
+	fail:
+	{
+		if(args)
+		{
+			t3net_destroy_arguments(args);
+		}
+		if(data)
+		{
+			t3net_destroy_data(data);
+		}
+		return -1;
+	}
 }

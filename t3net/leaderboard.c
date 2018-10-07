@@ -42,11 +42,11 @@ T3NET_LEADERBOARD * t3net_get_leaderboard(char * url, char * game, char * versio
 		return NULL;
 	}
 	lp->entries = entries;
-	t3net_strcpy(lp->url, url, 1024);
-	t3net_strcpy(lp->game, game, 64);
-	t3net_strcpy(lp->version, version, 64);
-	t3net_strcpy(lp->mode, mode, 64);
-	t3net_strcpy(lp->option, option, 64);
+	strcpy(lp->url, url);
+	strcpy(lp->game, game);
+	strcpy(lp->version, version);
+	strcpy(lp->mode, mode);
+	strcpy(lp->option, option);
 	lp->ascend = ascend;
 	if(!t3net_update_leaderboard(lp))
 	{
@@ -60,34 +60,54 @@ T3NET_LEADERBOARD * t3net_get_leaderboard(char * url, char * game, char * versio
 
 int t3net_update_leaderboard(T3NET_LEADERBOARD * lp)
 {
-	char url_w_arg[1024] = {0};
+	T3NET_ARGUMENTS * args = NULL;
 	char tnum[64] = {0};
 	const char * val;
-	T3NET_DATA * data;
+	T3NET_DATA * data = NULL;
 	int i;
 
 	if(!lp)
 	{
-		return 0;
+		goto fail;
 	}
 
 	sprintf(tnum, "%d", lp->entries);
-	t3net_strcpy_url(url_w_arg, lp->url, 1024);
-	t3net_strcat(url_w_arg, "?game=", 1024);
-	t3net_strcat(url_w_arg, lp->game, 1024);
-	t3net_strcat(url_w_arg, "&version=", 1024);
-	t3net_strcat(url_w_arg, lp->version, 1024);
-	t3net_strcat(url_w_arg, "&mode=", 1024);
-	t3net_strcat(url_w_arg, lp->mode, 1024);
-	t3net_strcat(url_w_arg, "&option=", 1024);
-	t3net_strcat(url_w_arg, lp->option, 1024);
-	t3net_strcat(url_w_arg, lp->ascend ? "&ascend=true" : "", 1024);
-	t3net_strcat(url_w_arg, "&limit=", 1024);
-	t3net_strcat(url_w_arg, tnum, 1024);
-	data = t3net_get_data(url_w_arg);
+	args = t3net_create_arguments();
+	if(!args)
+	{
+		goto fail;
+	}
+	if(!t3net_add_argument(args, "game", lp->game))
+	{
+		goto fail;
+	}
+	if(!t3net_add_argument(args, "version", lp->version))
+	{
+		goto fail;
+	}
+	if(!t3net_add_argument(args, "mode", lp->mode))
+	{
+		goto fail;
+	}
+	if(!t3net_add_argument(args, "option", lp->option))
+	{
+		goto fail;
+	}
+	if(lp->ascend)
+	{
+		if(!t3net_add_argument(args, "ascend", "true"))
+		{
+			goto fail;
+		}
+	}
+	if(!t3net_add_argument(args, "limit", tnum))
+	{
+		goto fail;
+	}
+	data = t3net_get_data(lp->url, args);
 	if(!data)
 	{
-		return 0;
+		goto fail;
 	}
 
 	for(i = 0; i < data->entries; i++)
@@ -109,8 +129,22 @@ int t3net_update_leaderboard(T3NET_LEADERBOARD * lp)
 		}
 	}
 	lp->entries = data->entries;
+	t3net_destroy_arguments(args);
 	t3net_destroy_data(data);
 	return 1;
+
+	fail:
+	{
+		if(args)
+		{
+			t3net_destroy_arguments(args);
+		}
+		if(data)
+		{
+			t3net_destroy_data(data);
+		}
+		return 0;
+	}
 }
 
 void t3net_clear_leaderboard(T3NET_LEADERBOARD * lp)
@@ -132,37 +166,67 @@ void t3net_destroy_leaderboard(T3NET_LEADERBOARD * lp)
 
 int t3net_upload_score(char * url, char * game, char * version, char * mode, char * option, char * name, unsigned long score, char * extra)
 {
-	T3NET_DATA * data;
-	char url_w_arg[1024] = {0};
-	char tname[256] = {0};
+	T3NET_ARGUMENTS * args = NULL;
+	T3NET_DATA * data = NULL;
 	char tscore[64] = {0};
 
 //	sprintf(url_w_arg, "%s?game=%s&version=%s&mode=%s&option=%s&name=%s&score=%lu", url, game, version, mode, option, tname, score);
-	t3net_strcpy_url(tname, name, 256);
-	t3net_strcpy_url(url_w_arg, url, 1024);
+	args = t3net_create_arguments();
+	if(!args)
+	{
+		goto fail;
+	}
 	sprintf(tscore, "%lu", score);
-	t3net_strcat(url_w_arg, "?game=", 1024);
-	t3net_strcat(url_w_arg, game, 1024);
-	t3net_strcat(url_w_arg, "&version=", 1024);
-	t3net_strcat(url_w_arg, version, 1024);
-	t3net_strcat(url_w_arg, "&mode=", 1024);
-	t3net_strcat(url_w_arg, mode, 1024);
-	t3net_strcat(url_w_arg, "&option=", 1024);
-	t3net_strcat(url_w_arg, option, 1024);
-	t3net_strcat(url_w_arg, "&name=", 1024);
-	t3net_strcat(url_w_arg, tname, 1024);
-	t3net_strcat(url_w_arg, "&score=", 1024);
-	t3net_strcat(url_w_arg, tscore, 1024);
+	if(!t3net_add_argument(args, "game", game))
+	{
+		goto fail;
+	}
+	if(!t3net_add_argument(args, "version", version))
+	{
+		goto fail;
+	}
+	if(!t3net_add_argument(args, "mode", mode))
+	{
+		goto fail;
+	}
+	if(!t3net_add_argument(args, "option", option))
+	{
+		goto fail;
+	}
+	if(!t3net_add_argument(args, "name", name))
+	{
+		goto fail;
+	}
+	if(!t3net_add_argument(args, "score", tscore))
+	{
+		goto fail;
+	}
 	if(extra)
 	{
-		t3net_strcat(url_w_arg, "&extra=", 1024);
-		t3net_strcat(url_w_arg, extra, 1024);
+		if(!t3net_add_argument(args, "extra", extra))
+		{
+			goto fail;
+		}
 	}
-	data = t3net_get_data(url_w_arg);
+	data = t3net_get_data(url, args);
 	if(!data)
 	{
-		return 0;
+		goto fail;
 	}
+	t3net_destroy_arguments(args);
 	t3net_destroy_data(data);
 	return 1;
+
+	fail:
+	{
+		if(args)
+		{
+			t3net_destroy_arguments(args);
+		}
+		if(data)
+		{
+			t3net_destroy_data(data);
+		}
+		return 0;
+	}
 }

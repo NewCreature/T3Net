@@ -29,63 +29,6 @@ void t3net_strcpy(char * dest, const char * src, int size)
 	dest[pos] = '\0';
 }
 
-void t3net_strcpy_url(char * dest, const char * src, int size)
-{
-	int write_pos = 0;
-	int c = 1;
-	int pos = 0;
-
-	while(c != '\0')
-	{
-		c = src[pos];
-		if(c == ' ' && write_pos + 4 < size)
-		{
-			dest[write_pos] = '%';
-			write_pos++;
-			dest[write_pos] = '2';
-			write_pos++;
-			dest[write_pos] = '0';
-			write_pos++;
-		}
-		else
-		{
-			dest[write_pos] = c;
-			write_pos++;
-		}
-		pos++;
-	}
-}
-
-char * t3net_strcat(char * dest, const char * src, int size)
-{
-	int write_pos = -1;
-	int c = 1;
-	int pos = 0;
-
-	/* find end of destination string */
-	while(c != '\0')
-	{
-		write_pos++;
-		c = dest[write_pos];
-	}
-
-	c = 1;
-	/* concatenate src onto dest */
-	while(c != '\0')
-	{
-		c = src[pos];
-		dest[write_pos] = c;
-		pos++;
-		write_pos++;
-		if(write_pos >= size)
-		{
-			write_pos = size - 1;
-		}
-	}
-	dest[write_pos] = '\0';
-	return dest;
-}
-
 typedef struct
 {
 
@@ -93,6 +36,58 @@ typedef struct
 	size_t filled;
 
 } T3NET_MEMORY_CHUNK;
+
+T3NET_ARGUMENTS * t3net_create_arguments(void)
+{
+	T3NET_ARGUMENTS * arguments;
+
+	arguments = malloc(sizeof(T3NET_ARGUMENTS));
+	if(arguments)
+	{
+		memset(arguments, 0, sizeof(T3NET_ARGUMENTS));
+	}
+	return arguments;
+}
+
+void t3net_destroy_arguments(T3NET_ARGUMENTS * arguments)
+{
+	int i;
+
+	for(i = 0; i < arguments->count; i++)
+	{
+		curl_free(arguments->key[i]);
+		curl_free(arguments->val[i]);
+	}
+	free(arguments);
+}
+
+int t3net_add_argument(T3NET_ARGUMENTS * arguments, const char * key, const char * val)
+{
+	CURL * curl;
+
+	if(arguments->count < T3NET_MAX_ARGUMENTS)
+	{
+		curl = curl_easy_init();
+		if(!curl)
+		{
+			return 0;
+		}
+		arguments->key[arguments->count] = curl_easy_escape(curl, key, 0);
+		if(!arguments->key[arguments->count])
+		{
+			return 0;
+		}
+		arguments->val[arguments->count] = curl_easy_escape(curl, val, 0);
+		if(!arguments->val[arguments->count])
+		{
+			curl_free(arguments->key[arguments->count]);
+			return 0;
+		}
+		arguments->count++;
+		return 1;
+	}
+	return 0;
+}
 
 size_t t3net_internal_write_function(void * ptr, size_t size, size_t nmemb, void * stream)
 {
@@ -252,15 +247,36 @@ int t3net_get_element(const char * data, T3NET_TEMP_ELEMENT * element, int data_
 	return 1;
 }
 
-char * t3net_get_raw_data(const char * url)
+static int get_arguments_length(const T3NET_ARGUMENTS * arguments)
+{
+	int i;
+	int size = 0;
+
+	if(arguments)
+	{
+		for(i = 0; i < arguments->count; i++)
+		{
+			size += 1;
+			size += strlen(arguments->key[i]);
+			size += 1;
+			size += strlen(arguments->val[i]);
+		}
+	}
+	return size;
+}
+
+char * t3net_get_raw_data(const char * url, const T3NET_ARGUMENTS * arguments)
 {
 	CURL * curl;
 	T3NET_MEMORY_CHUNK data;
+	char * final_url = NULL;
+	int final_url_size;
+	int i;
 
 	data.data = malloc(T3NET_DATA_CHUNK_SIZE);
 	if(!data.data)
 	{
-		return NULL;
+		goto fail;
 	}
 	memset(data.data, 0, T3NET_DATA_CHUNK_SIZE);
 	data.filled = 0;
@@ -269,22 +285,57 @@ char * t3net_get_raw_data(const char * url)
 	curl = curl_easy_init();
 	if(!curl)
 	{
-		free(data.data);
-		return NULL;
+		goto fail;
 	}
-	curl_easy_setopt(curl, CURLOPT_URL, url);
+	final_url_size = strlen(url) + get_arguments_length(arguments) + 1;
+	final_url = malloc(final_url_size);
+	if(!final_url)
+	{
+		goto fail;
+	}
+	strcpy(final_url, url);
+	if(arguments)
+	{
+		for(i = 0; i < arguments->count; i++)
+		{
+			if(i == 0)
+			{
+				strcat(final_url, "?");
+			}
+			else
+			{
+				strcat(final_url, "&");
+			}
+			strcat(final_url, arguments->key[i]);
+			strcat(final_url, "=");
+			strcat(final_url, arguments->val[i]);
+		}
+	}
+	curl_easy_setopt(curl, CURLOPT_URL, final_url);
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, t3net_internal_write_function);
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &data);
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT, T3NET_TIMEOUT_TIME);
     if(curl_easy_perform(curl))
     {
 		curl_easy_cleanup(curl);
-		free(data.data);
-		return NULL;
+		goto fail;
 	}
     curl_easy_cleanup(curl);
 
     return data.data;
+
+	fail:
+	{
+		if(final_url)
+		{
+			free(final_url);
+		}
+		if(data.data)
+		{
+			free(data.data);
+		}
+	}
+	return NULL;
 }
 
 static int t3net_count_data_entries_in_string(const char * s, int * field_max)
@@ -434,6 +485,7 @@ T3NET_DATA * t3net_get_data_from_string(const char * raw_data)
 	unsigned int text_pos = 0;
 	int ecount = -1;
 	T3NET_TEMP_ELEMENT element;
+	int empty_data = 0;
 
 	if(!raw_data)
 	{
@@ -441,9 +493,26 @@ T3NET_DATA * t3net_get_data_from_string(const char * raw_data)
 	}
 
 	/* check for error */
-	if(!strncmp(raw_data, "Error", 5))
+	if(strlen(raw_data) >= 5 && !strncmp(raw_data, "Error", 5))
 	{
-		return NULL;
+		empty_data = 1;
+	}
+	else if(strlen(raw_data) >= 3 && !strncmp(raw_data, "ack", 3))
+	{
+		empty_data = 1;
+	}
+	if(empty_data)
+	{
+		data = t3net_create_data(0, fields);
+		if(data)
+		{
+			data->header = malloc(strlen(raw_data) + 1);
+			if(data->header)
+			{
+				strcpy(data->header, raw_data);
+			}
+		}
+		return data;
 	}
 
 	entries = t3net_count_data_entries_in_string(raw_data, &fields);
@@ -482,30 +551,32 @@ T3NET_DATA * t3net_get_data_from_string(const char * raw_data)
 			else
 			{
 				size = l + 1;
-				t3net_get_element(current_line, &element, size);
-
-				/* copy field name */
-				size = strlen(element.name) + 1;
-				if(size > 0)
+				if(t3net_get_element(current_line, &element, size))
 				{
-					data->entry[ecount]->field[field]->name = malloc(size);
-					if(data->entry[ecount]->field[field]->name)
-					{
-						t3net_strcpy(data->entry[ecount]->field[field]->name, element.name, size);
-					}
-				}
 
-				/* copy field data */
-				size = strlen(element.data) + 1;
-				if(size > 0)
-				{
-					data->entry[ecount]->field[field]->data = malloc(size);
-					if(data->entry[ecount]->field[field]->data)
+					/* copy field name */
+					size = strlen(element.name) + 1;
+					if(size > 0)
 					{
-						t3net_strcpy(data->entry[ecount]->field[field]->data, element.data, size);
+						data->entry[ecount]->field[field]->name = malloc(size);
+						if(data->entry[ecount]->field[field]->name)
+						{
+							t3net_strcpy(data->entry[ecount]->field[field]->name, element.name, size);
+						}
 					}
+
+					/* copy field data */
+					size = strlen(element.data) + 1;
+					if(size > 0)
+					{
+						data->entry[ecount]->field[field]->data = malloc(size);
+						if(data->entry[ecount]->field[field]->data)
+						{
+							t3net_strcpy(data->entry[ecount]->field[field]->data, element.data, size);
+						}
+					}
+					field++;
 				}
-				field++;
 			}
 		}
 		else
@@ -528,12 +599,12 @@ T3NET_DATA * t3net_get_data_from_string(const char * raw_data)
 	}
 }
 
-T3NET_DATA * t3net_get_data(const char * url)
+T3NET_DATA * t3net_get_data(const char * url, const T3NET_ARGUMENTS * arguments)
 {
 	char * raw_data;
 	T3NET_DATA * data = NULL;
 
-	raw_data = t3net_get_raw_data(url);
+	raw_data = t3net_get_raw_data(url, arguments);
 	if(raw_data)
 	{
 		data = t3net_get_data_from_string(raw_data);
@@ -590,8 +661,21 @@ void t3net_destroy_data(T3NET_DATA * data)
 			}
 			free(data->entry);
 		}
+		if(data->header)
+		{
+			free(data->header);
+		}
 		free(data);
 	}
+}
+
+const char * t3net_get_error(T3NET_DATA * data)
+{
+	if(data->header && strlen(data->header) > 7 && !strncmp(data->header, "Error", 5))
+	{
+		return &data->header[7];
+	}
+	return NULL;
 }
 
 const char * t3net_get_data_entry_field(T3NET_DATA * data, int entry, const char * field_name)
