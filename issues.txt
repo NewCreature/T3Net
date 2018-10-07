@@ -1,0 +1,6 @@
+T3Net Issues
+------------
+
+[ ]t3net_get_element() has a hard limit of 256 bytes for key and value storage.
+   We need to be able to specify the maximum number of bytes. Currently, if we
+   receive data that is larger than 256 bytes, we will overrun the buffer(s).
