@@ -37,7 +37,7 @@ void t3net_strcpy(char * dest, const char * src, int size)
 char * t3net_load_file(const char * fn)
 {
 	char * data = NULL;
-	FILE * fp;
+	FILE * fp = NULL;
 	int size = 0;
 
 	fp = fopen(fn, "rb");
@@ -48,6 +48,7 @@ char * t3net_load_file(const char * fn)
 	fseek(fp, 0, SEEK_END);
 	size = ftell(fp);
 	fclose(fp);
+	fp = NULL;
 
 	data = malloc(size);
 	if(!data)
@@ -197,7 +198,7 @@ char * t3net_escape(const char * s)
 	{
 		goto fail;
 	}
-	escape_s = malloc(l);
+	escape_s = malloc(l + 1);
 	if(!escape_s)
 	{
 		goto fail;
@@ -499,8 +500,7 @@ char * t3net_get_raw_data(int method, const char * url, const T3NET_ARGUMENTS * 
 			goto fail;
 		}
 		sprintf(temp_path, "%st3net.out", t3net_temp_dir);
-		sprintf(curl_command, "%s --connect-timeout %d \"%s\" --output \"%s\"", t3net_curl_command, T3NET_TIMEOUT_TIME, final_url, temp_path);
-		printf("command: %s\n", curl_command);
+		sprintf(curl_command, "%s --connect-timeout %d \"%s\" --silent --output \"%s\"", t3net_curl_command, T3NET_TIMEOUT_TIME, final_url, temp_path);
 		system(curl_command);
 		free(curl_command);
 		data.data = t3net_load_file(temp_path);
@@ -874,7 +874,7 @@ const char * t3net_get_data_entry_field(T3NET_DATA * data, int entry, const char
 	{
 		for(i = 0; i < data->entry[entry]->fields; i++)
 		{
-			if(!strcmp(data->entry[entry]->field[i]->name, field_name))
+			if(data->entry[entry]->field[i]->name && !strcmp(data->entry[entry]->field[i]->name, field_name))
 			{
 				return data->entry[entry]->field[i]->data;
 			}
