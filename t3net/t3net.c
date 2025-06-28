@@ -1,65 +1,99 @@
-#ifdef ALLEGRO_WINDOWS
-	#include <windows.h>
-#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifndef T3NET_NO_LIBCURL
-	#include <curl/curl.h>
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
+	#include <windows.h>
 #endif
 #include "t3net.h"
-#include "internal.h"
 
-static void t3net_destroy_data_entry_field(T3NET_DATA_ENTRY_FIELD * field);
-static void t3net_destroy_data_entry(T3NET_DATA_ENTRY * entry);
+typedef struct
+{
 
-char t3net_server_message[1024] = {0};
+	char * name;
+	char * data;
+
+} T3NET_TEMP_ELEMENT;
+
+static char _t3net_curl_command[1024] = {0};
 
 static char t3net_temp_dir[1024] = {0};
-static char t3net_curl_command[1024] = {0};
 
-static int run_system_command(char * command)
+static FILE * _t3net_log_file = NULL;
+
+static int _t3net_run_system_command(char * command, const char * log_file)
 {
-	#ifdef ALLEGRO_WINDOWS
+	int ret;
+
+	#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
+	
 		STARTUPINFO si = {0};
 		PROCESS_INFORMATION pi = {0};
 		SECURITY_ATTRIBUTES sa;
+		DWORD retvalue;
 		sa.nLength = sizeof(sa);
 		sa.lpSecurityDescriptor = NULL;
 		sa.bInheritHandle = TRUE;
+		HANDLE log_handle = CreateFile(log_file, GENERIC_WRITE, FILE_SHARE_WRITE | FILE_SHARE_READ, &sa, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 		si.cb = sizeof(si);
 		si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
 		si.hStdInput = NULL;
-		si.hStdOutput = NULL;
-		si.hStdError = NULL;
+		si.hStdOutput = log_handle;
+		si.hStdError = log_handle;
 		si.wShowWindow = SW_HIDE;
 		ret = CreateProcess(NULL, command, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi);
 		WaitForSingleObject(pi.hProcess, INFINITE);
+		GetExitCodeProcess(pi.hProcess, &retvalue);
+		if(log_handle)
+		{
+			CloseHandle(log_handle);
+		}
+		ret = retvalue;
+
 	#else
-		return system(command);
+
+		char final_command[1024];
+		strcpy(final_command, command);
+		if(log_file)
+		{
+			strcat(final_command, " > \"");
+			strcat(final_command, log_file);
+			strcat(final_command, "\"");
+		}
+		ret = system(final_command);
+
 	#endif
+
+	return ret;
 }
 
-void t3net_strcpy(char * dest, const char * src, int size)
+static int _t3net_get_post_data_length(char ** post_data)
 {
-	int c = 1;
-	int pos = 0;
+	int i;
+	int l = 0;
 
-	while(c != '\0')
+	if(post_data)
 	{
-		c = src[pos];
-		dest[pos] = c;
-		pos++;
-		if(pos >= size)
+		for(i = 0; post_data[i]; i++)
 		{
-			pos = size - 1;
-			break;
+			l += strlen(post_data[i]);
 		}
 	}
-	dest[pos] = '\0';
+	return l;
 }
 
-char * t3net_load_file(const char * fn)
+const char * t3net_get_curl_command(void)
+{
+	#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
+		strcpy(_t3net_curl_command, "./curl.exe");
+	#elif __APPLE__
+		strcpy(_t3net_curl_command, "/usr/bin/curl");
+	#else
+		strcpy(_t3net_curl_command, "LD_LIBRARY_PATH=\"/lib\" curl");
+	#endif
+	return _t3net_curl_command;
+}
+
+static char * _t3net_load_file(const char * fn)
 {
 	char * data = NULL;
 	FILE * fp = NULL;
@@ -88,6 +122,7 @@ char * t3net_load_file(const char * fn)
 	fread(data, 1, size, fp);
 	fclose(fp);
 	data[size] = 0;
+	remove(fn);
 	return data;
 
 	fail:
@@ -104,34 +139,106 @@ char * t3net_load_file(const char * fn)
 	}
 }
 
-typedef struct
+static int _t3net_default_url_runner(const char * url, char ** post_data, const char * out_path, char ** out_data)
 {
+	char * curl_command = malloc(strlen(url) + _t3net_get_post_data_length(post_data) + 1024);
+	char temp_path[1024] = {0};
+	char buf[256];
+	int ret = 0;
+	int i;
 
-	char * data;
-	size_t filled;
-
-} T3NET_MEMORY_CHUNK;
-
-int t3net_setup(const char * curl_command, const char * temp_dir)
-{
 	if(curl_command)
 	{
-		if(strlen(curl_command) < 1024)
+		if(out_path)
 		{
-			strcpy(t3net_curl_command, curl_command);
+			sprintf(temp_path, "%s", out_path);
 		}
 		else
 		{
-			return 0;
+			sprintf(temp_path, "%st3net.out", t3net_temp_dir);
 		}
+		strcpy(curl_command, t3net_get_curl_command());
+		strcat(curl_command, " -L");
+		strcat(curl_command, " --connect-timeout");
+		sprintf(buf, " %d", T3NET_TIMEOUT_TIME);
+		strcat(curl_command, buf);
+		strcat(curl_command, " --silent");
+		strcat(curl_command, " --output");
+		strcat(curl_command, " \"");
+		strcat(curl_command, temp_path);
+		strcat(curl_command, "\"");
+		if(post_data)
+		{
+			for(i = 0; post_data[i]; i++)
+			{
+				strcat(curl_command, " -F \"");
+				strcat(curl_command, post_data[i]);
+				strcat(curl_command, "\"");
+			}
+		}
+		strcat(curl_command, " \"");
+		strcat(curl_command, url);
+		strcat(curl_command, "\"");
+
+		ret = !_t3net_run_system_command(curl_command, NULL);
+		free(curl_command);
+		if(out_data)
+		{
+			*out_data = _t3net_load_file(temp_path);
+			if(!*out_data)
+			{
+				ret = 0;
+			}
+		}
+	}
+	return ret;
+}
+
+static void t3net_destroy_data_entry_field(T3NET_DATA_ENTRY_FIELD * field)
+{
+	if(field)
+	{
+		if(field->name)
+		{
+			free(field->name);
+		}
+		if(field->data)
+		{
+			free(field->data);
+		}
+		free(field);
+	}
+}
+
+static int (*_t3net_url_runner)(const char * url, char ** post_data, const char * out_path, char ** out_data) = _t3net_default_url_runner;
+
+int t3net_open_log_file(const char * fn)
+{
+	_t3net_log_file = fopen(fn, "wb");
+	if(_t3net_log_file)
+	{
+		return 1;
+	}
+	return 0;
+}
+
+void t3met_close_log_file(void)
+{
+	if(_t3net_log_file)
+	{
+		fclose(_t3net_log_file);
+	}
+}
+
+int t3net_setup(int (*url_runner)(const char * url, char ** post_data, const char * out_path, char ** out_data), const char * temp_dir)
+{
+	if(url_runner)
+	{
+		_t3net_url_runner = url_runner;
 	}
 	else
 	{
-		#ifdef ALLEGRO_WINDOWS
-			strcpy(t3net_curl_command, "curl");
-		#else
-			strcpy(t3net_curl_command, "/usr/bin/curl");
-		#endif
+		_t3net_url_runner = _t3net_default_url_runner;
 	}
 	if(temp_dir)
 	{
@@ -145,11 +252,6 @@ int t3net_setup(const char * curl_command, const char * temp_dir)
 		}
 	}
 	return 1;
-}
-
-const char * t3net_get_curl_command(void)
-{
-	return t3net_curl_command;
 }
 
 T3NET_ARGUMENTS * t3net_create_arguments(void)
@@ -211,67 +313,7 @@ static int escape_strlen(const char * s)
 	return l;
 }
 
-static void reverse_http(char * s)
-{
-	char * http = strstr(s, "http\%3A\%2F\%2F");
-	char * ptth = "ptth\%3A\%2F\%2F";
-	int i;
-
-	if(http)
-	{
-		for(i = 0; i < strlen(ptth); i++)
-		{
-			http[i] = ptth[i];
-		}
-	}
-}
-
-static void reverse_https(char * s)
-{
-	char * http = strstr(s, "https\%3A\%2F\%2F");
-	char * ptth = "sptth\%3A\%2F\%2F";
-	int i;
-
-	if(http)
-	{
-		for(i = 0; i < strlen(ptth); i++)
-		{
-			http[i] = ptth[i];
-		}
-	}
-}
-
-static void reverse_ptth(char * s)
-{
-	char * ptth = strstr(s, "ptth://");
-	char * http = "http://";
-	int i;
-
-	if(ptth)
-	{
-		for(i = 0; i < strlen(http); i++)
-		{
-			ptth[i] = http[i];
-		}
-	}
-}
-
-static void reverse_sptth(char * s)
-{
-	char * ptth = strstr(s, "ptths://");
-	char * http = "https://";
-	int i;
-
-	if(ptth)
-	{
-		for(i = 0; i < strlen(http); i++)
-		{
-			ptth[i] = http[i];
-		}
-	}
-}
-
-char * t3net_escape(const char * s)
+static char * _t3net_escape(const char * s)
 {
 	char buf[16] = {0};
 	int i;
@@ -295,8 +337,6 @@ char * t3net_escape(const char * s)
 		fragment = url_encode_char(s[i], buf, 16);
 		strcat(escape_s, fragment);
 	}
-	reverse_http(escape_s);
-	reverse_https(escape_s);
 	return escape_s;
 
 	fail:
@@ -311,55 +351,113 @@ char * t3net_escape(const char * s)
 
 int t3net_add_argument(T3NET_ARGUMENTS * arguments, const char * key, const char * val)
 {
+	char * new_key = NULL;
+	char * new_val = NULL;
+
 	if(arguments->count < T3NET_MAX_ARGUMENTS)
 	{
-		arguments->key[arguments->count] = t3net_escape(key);
-		if(!arguments->key[arguments->count])
+		new_key = _t3net_escape(key);
+		if(!new_key)
 		{
-			return 0;
+			goto fail;
 		}
-		arguments->val[arguments->count] = t3net_escape(val);
-		if(!arguments->val[arguments->count])
+		new_val = _t3net_escape(val);
+		if(!new_val)
 		{
-			free(arguments->key[arguments->count]);
-			return 0;
+			goto fail;
 		}
+		arguments->key[arguments->count] = new_key;
+		arguments->val[arguments->count] = new_val;
 		arguments->count++;
 		return 1;
 	}
-	return 0;
+
+	fail:
+	{
+		if(new_key)
+		{
+			free(new_key);
+		}
+		if(new_val)
+		{
+			free(new_val);
+		}
+		return 0;
+	}
 }
 
-size_t t3net_internal_write_function(void * ptr, size_t size, size_t nmemb, void * stream)
+T3NET_POST_DATA * t3net_create_post_data(void)
 {
-	size_t realsize = size * nmemb;
-	T3NET_MEMORY_CHUNK * mem = (T3NET_MEMORY_CHUNK *)stream;
-	size_t blocks = (mem->filled + 1) / T3NET_DATA_CHUNK_SIZE + 1;
-	size_t blocks_required = (realsize + mem->filled + 1) / T3NET_DATA_CHUNK_SIZE + 1;
+	T3NET_POST_DATA * post_data = NULL;
 
-	/* increase chunk size if we exceed it */
-	if(realsize + mem->filled + 1 >= T3NET_DATA_CHUNK_SIZE * blocks)
+	post_data = malloc(sizeof(T3NET_POST_DATA));
+	if(!post_data)
 	{
-		mem->data = realloc(mem->data, T3NET_DATA_CHUNK_SIZE * blocks_required);
-		if(mem->data == NULL)
+		goto fail;
+	}
+	memset(post_data, 0, sizeof(T3NET_POST_DATA));
+	post_data->data = malloc(sizeof(const char *) * T3NET_MAX_POST_DATA);
+	if(!post_data->data)
+	{
+		goto fail;
+	}
+	memset(post_data->data, 0, sizeof(const char *) * T3NET_MAX_POST_DATA);
+
+	return post_data;
+
+	fail:
+	{
+		if(post_data)
 		{
-  	    	/* out of memory! */
-  	    	return 0;
+			t3net_destroy_post_data(post_data);
+		}
+		return NULL;
+	}
+}
+
+void t3net_destroy_post_data(T3NET_POST_DATA * post_data)
+{
+	int i;
+
+	if(post_data)
+	{
+		if(post_data->data)
+		{
+			for(i = 0; i < post_data->count; i++)
+			{
+				if(post_data->data[i])
+				{
+					free(post_data->data[i]);
+				}
+			}
+			free(post_data->data);
+		}
+		free(post_data);
+	}
+}
+
+int t3net_add_post_data(T3NET_POST_DATA * post_data, const char * data)
+{
+	if(post_data->count < T3NET_MAX_POST_DATA)
+	{
+		post_data->data[post_data->count] = strdup(data);
+		if(post_data->data[post_data->count])
+		{
+			post_data->count++;
+			return 1;
 		}
 	}
-	memcpy(&(mem->data[mem->filled]), ptr, realsize);
-	mem->filled += realsize;
-	mem->data[mem->filled] = '\0';
-
-	return realsize;
+	return 0;
 }
 
 static int t3net_get_line_length(const char * data, unsigned int text_pos)
 {
 	int length = 0;
-	int c;
+	int c, l;
 
-	while(1)
+	l = strlen(data);
+
+	while(text_pos < l)
 	{
 		c = data[text_pos];
 		if(c != '\r')
@@ -449,14 +547,41 @@ char * t3net_get_line(const char * data, int data_max, unsigned int * text_pos)
 	return text_line;
 }
 
-int t3net_get_element(const char * data, T3NET_TEMP_ELEMENT * element, int data_max)
+static void discard_temp_element(T3NET_TEMP_ELEMENT * element)
+{
+	if(element->name)
+	{
+		free(element->name);
+		element->name = NULL;
+	}
+	if(element->data)
+	{
+		free(element->data);
+		element->data = NULL;
+	}
+}
+
+static int get_temp_element(const char * data, T3NET_TEMP_ELEMENT * element, int data_max)
 {
 	int outpos = 0;
 	int c;
 	int read_pos = 1; // skip first byte
 
+	element->name = malloc(data_max);
+	if(!element->name)
+	{
+		goto fail;
+	}
+	element->data = malloc(data_max);
+	if(!element->data)
+	{
+		goto fail;
+	}
+	memset(element->name, 0, data_max);
+	memset(element->data, 0, data_max);
+
 	/* read element name */
-	while(1)
+	while(read_pos < data_max)
 	{
 		c = data[read_pos];
 
@@ -469,9 +594,12 @@ int t3net_get_element(const char * data, T3NET_TEMP_ELEMENT * element, int data_
 		{
 			element->name[outpos] = c;
 			outpos++;
-			element->name[outpos] = '\0';
 			read_pos++;
 		}
+	}
+	if(read_pos >= data_max)
+	{
+		goto fail;
 	}
 
 	/* read element data */
@@ -482,136 +610,15 @@ int t3net_get_element(const char * data, T3NET_TEMP_ELEMENT * element, int data_
 
 		element->data[outpos] = c;
 		outpos++;
-		element->data[outpos] = '\0';
 		read_pos++;
 	}
 	return 1;
-}
-
-static int get_arguments_length(const T3NET_ARGUMENTS * arguments)
-{
-	int i;
-	int size = 0;
-
-	if(arguments)
-	{
-		for(i = 0; i < arguments->count; i++)
-		{
-			size += 1;
-			size += strlen(arguments->key[i]);
-			size += 1;
-			size += strlen(arguments->val[i]);
-		}
-	}
-	return size;
-}
-
-char * t3net_get_raw_data(int method, const char * url, const T3NET_ARGUMENTS * arguments)
-{
-	char temp_path[1024] = {0};
-	#ifndef T3NET_NO_LIBCURL
-		CURL * curl;
-	#endif
-	T3NET_MEMORY_CHUNK data;
-	char * final_url = NULL;
-	char * curl_command = NULL;
-	int final_url_size;
-	int i;
-
-	data.data = malloc(T3NET_DATA_CHUNK_SIZE);
-	if(!data.data)
-	{
-		goto fail;
-	}
-	memset(data.data, 0, T3NET_DATA_CHUNK_SIZE);
-	data.filled = 0;
-
-	/* make HTTP request */
-	if(method == T3NET_CURL_LIBCURL)
-	{
-		#ifndef T3NET_NO_LIBCURL
-			curl = curl_easy_init();
-			if(!curl)
-			{
-				goto fail;
-			}
-		#else
-			goto fail;
-		#endif
-	}
-	final_url_size = strlen(url) + get_arguments_length(arguments) + 1;
-	final_url = malloc(final_url_size);
-	if(!final_url)
-	{
-		goto fail;
-	}
-	strcpy(final_url, url);
-	if(arguments)
-	{
-		for(i = 0; i < arguments->count; i++)
-		{
-			if(i == 0)
-			{
-				strcat(final_url, "?");
-			}
-			else
-			{
-				strcat(final_url, "&");
-			}
-			strcat(final_url, arguments->key[i]);
-			strcat(final_url, "=");
-			strcat(final_url, arguments->val[i]);
-		}
-	}
-	if(method == T3NET_CURL_LIBCURL)
-	{
-		#ifndef T3NET_NO_LIBCURL
-			curl_easy_setopt(curl, CURLOPT_URL, final_url);
-			curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, t3net_internal_write_function);
-			curl_easy_setopt(curl, CURLOPT_WRITEDATA, &data);
-			curl_easy_setopt(curl, CURLOPT_TIMEOUT, T3NET_TIMEOUT_TIME);
-	    if(curl_easy_perform(curl))
-	    {
-				curl_easy_cleanup(curl);
-				goto fail;
-			}
-	    curl_easy_cleanup(curl);
-		#else
-			goto fail;
-		#endif
-	}
-	else
-	{
-		curl_command = malloc(final_url_size + 1024);
-		if(!curl_command)
-		{
-			goto fail;
-		}
-		sprintf(temp_path, "%st3net.out", t3net_temp_dir);
-		sprintf(curl_command, "%s --connect-timeout %d \"%s\" --silent --output \"%s\"", t3net_curl_command, T3NET_TIMEOUT_TIME, final_url, temp_path);
-		run_system_command(curl_command);
-		free(curl_command);
-		data.data = t3net_load_file(temp_path);
-	}
-
-	return data.data;
 
 	fail:
 	{
-		if(final_url)
-		{
-			free(final_url);
-		}
-		if(curl_command)
-		{
-			free(curl_command);
-		}
-		if(data.data)
-		{
-			free(data.data);
-		}
+		discard_temp_element(element);
+		return 0;
 	}
-	return NULL;
 }
 
 static int t3net_count_data_entries_in_string(const char * s, int * field_max)
@@ -672,6 +679,24 @@ static int t3net_count_data_entries_in_string(const char * s, int * field_max)
 		pos++;
 	}
 	return entries;
+}
+
+static void t3net_destroy_data_entry(T3NET_DATA_ENTRY * entry)
+{
+	int j;
+
+	if(entry)
+	{
+		if(entry->field)
+		{
+			for(j = 0; j < entry->fields; j++)
+			{
+				t3net_destroy_data_entry_field(entry->field[j]);
+			}
+			free(entry->field);
+		}
+		free(entry);
+	}
 }
 
 static T3NET_DATA_ENTRY * t3net_create_data_entry(int max_fields)
@@ -749,182 +774,6 @@ static T3NET_DATA * t3net_create_data(int max_entries, int max_fields)
 	}
 }
 
-T3NET_DATA * t3net_get_data_from_string(const char * raw_data)
-{
-	int text_max;
-	T3NET_DATA * data = NULL;
-	char * current_line;
-	int entries = 0;
-	int fields = 0;
-	int l, size;
-	int field = 0;
-	unsigned int text_pos = 0;
-	int ecount = -1;
-	T3NET_TEMP_ELEMENT element;
-	int empty_data = 0;
-
-	if(!raw_data)
-	{
-		return NULL;
-	}
-
-	/* check for error */
-	if(strlen(raw_data) >= 5 && !strncmp(raw_data, "Error", 5))
-	{
-		empty_data = 1;
-	}
-	else if(strlen(raw_data) >= 3 && !strncmp(raw_data, "ack", 3))
-	{
-		empty_data = 1;
-	}
-	if(empty_data)
-	{
-		data = t3net_create_data(0, fields);
-		if(data)
-		{
-			data->header = malloc(strlen(raw_data) + 1);
-			if(data->header)
-			{
-				strcpy(data->header, raw_data);
-			}
-		}
-		return data;
-	}
-
-	entries = t3net_count_data_entries_in_string(raw_data, &fields);
-	if(entries < 0)
-	{
-		goto error_out;
-	}
-	data = t3net_create_data(entries, fields);
-	if(!data)
-	{
-		return NULL;
-	}
-
-	text_pos = 0;
-    text_max = strlen(raw_data) + 1;
-
-    /* read header */
-	current_line = t3net_get_line(raw_data, text_max, &text_pos);
-	if(!current_line)
-	{
-		goto error_out;
-	}
-	data->header = current_line;
-
-	while(1)
-	{
-		current_line = t3net_get_line(raw_data, text_max, &text_pos);
-		if(current_line)
-		{
-			l = strlen(current_line);
-			if(l <= 0)
-			{
-				ecount++;
-				field = 0;
-			}
-			else
-			{
-				size = l + 1;
-				if(t3net_get_element(current_line, &element, size))
-				{
-
-					/* copy field name */
-					size = strlen(element.name) + 1;
-					if(size > 0)
-					{
-						data->entry[ecount]->field[field]->name = malloc(size);
-						if(data->entry[ecount]->field[field]->name)
-						{
-							t3net_strcpy(data->entry[ecount]->field[field]->name, element.name, size);
-						}
-					}
-
-					/* copy field data */
-					size = strlen(element.data) + 1;
-					if(size > 0)
-					{
-						data->entry[ecount]->field[field]->data = malloc(size);
-						if(data->entry[ecount]->field[field]->data)
-						{
-							t3net_strcpy(data->entry[ecount]->field[field]->data, element.data, size);
-						}
-					}
-					field++;
-				}
-			}
-		}
-		else
-		{
-			break;
-		}
-
-		/* get out if we've reached the end of the data */
-		if(text_pos >= text_max)
-		{
-			break;
-		}
-	}
-	return data;
-
-	error_out:
-	{
-		t3net_destroy_data(data);
-		return NULL;
-	}
-}
-
-T3NET_DATA * t3net_get_data(int method, const char * url, const T3NET_ARGUMENTS * arguments)
-{
-	char * raw_data;
-	T3NET_DATA * data = NULL;
-
-	raw_data = t3net_get_raw_data(method, url, arguments);
-	if(raw_data)
-	{
-		reverse_ptth(raw_data);
-		reverse_sptth(raw_data);
-		data = t3net_get_data_from_string(raw_data);
-		free(raw_data);
-	}
-	return data;
-}
-
-static void t3net_destroy_data_entry_field(T3NET_DATA_ENTRY_FIELD * field)
-{
-	if(field)
-	{
-		if(field->name)
-		{
-			free(field->name);
-		}
-		if(field->data)
-		{
-			free(field->data);
-		}
-		free(field);
-	}
-}
-
-static void t3net_destroy_data_entry(T3NET_DATA_ENTRY * entry)
-{
-	int j;
-
-	if(entry)
-	{
-		if(entry->field)
-		{
-			for(j = 0; j < entry->fields; j++)
-			{
-				t3net_destroy_data_entry_field(entry->field[j]);
-			}
-			free(entry->field);
-		}
-		free(entry);
-	}
-}
-
 void t3net_destroy_data(T3NET_DATA * data)
 {
 	int i;
@@ -944,6 +793,276 @@ void t3net_destroy_data(T3NET_DATA * data)
 			free(data->header);
 		}
 		free(data);
+	}
+}
+
+static int _t3net_get_arguments_length(const T3NET_ARGUMENTS * arguments)
+{
+	int i;
+	int size = 0;
+
+	if(arguments)
+	{
+		for(i = 0; i < arguments->count; i++)
+		{
+			size += 1; // '?/&'
+			size += strlen(arguments->key[i]);
+			size += 1; // '='
+			size += strlen(arguments->val[i]);
+		}
+	}
+	return size;
+}
+
+static char * _t3net_compose_url(const char * url, T3NET_ARGUMENTS * arguments)
+{
+	char * final_url = NULL;
+	int final_url_size;
+	int i;
+
+	final_url_size = strlen(url) + _t3net_get_arguments_length(arguments) + 1;
+	final_url = malloc(final_url_size);
+	if(!final_url)
+	{
+		goto fail;
+	}
+	strcpy(final_url, url);
+	if(arguments)
+	{
+		for(i = 0; i < arguments->count; i++)
+		{
+			if(i == 0)
+			{
+				strcat(final_url, "?");
+			}
+			else
+			{
+				strcat(final_url, "&");
+			}
+			strcat(final_url, arguments->key[i]);
+			strcat(final_url, "=");
+			strcat(final_url, arguments->val[i]);
+		}
+	}
+	return final_url;
+
+	fail:
+	{
+		if(final_url)
+		{
+			free(final_url);
+		}
+		return NULL;
+	}
+}
+
+int t3net_http_request(const char * url, T3NET_ARGUMENTS * arguments, T3NET_POST_DATA * post_data, char ** out_data)
+{
+	char * final_url = NULL;
+
+	final_url = _t3net_compose_url(url, arguments);
+	if(!final_url)
+	{
+		goto fail;
+	}
+	if(!_t3net_url_runner(final_url, post_data ? post_data->data : NULL, NULL, out_data))
+	{
+		goto fail;
+	}
+	free(final_url);
+
+	return 1;
+
+	fail:
+	{
+		if(final_url)
+		{
+			free(final_url);
+		}
+		return 0;
+	}
+}
+
+T3NET_DATA * t3net_get_dataset(const char * raw_data)
+{
+	int text_max;
+	T3NET_DATA * data = NULL;
+	char * current_line;
+	int entries = 0;
+	int fields = 0;
+	int l, size;
+	int field = 0;
+	unsigned int text_pos = 0;
+	int ecount = -1;
+	T3NET_TEMP_ELEMENT element;
+	int empty_data = 0;
+
+	if(!raw_data)
+	{
+		goto fail;
+	}
+
+	/* check for error */
+	if(strlen(raw_data) >= 5 && !memcmp(raw_data, "Error", 5))
+	{
+		empty_data = 1;
+	}
+	else if(strlen(raw_data) >= 3 && !strncmp(raw_data, "ack", 3))
+	{
+		empty_data = 1;
+	}
+	if(empty_data)
+	{
+		data = t3net_create_data(0, fields);
+		if(data)
+		{
+			data->header = malloc(strlen(raw_data) + 1);
+			if(data->header)
+			{
+				strcpy(data->header, raw_data);
+			}
+		}
+	}
+	else
+	{
+		entries = t3net_count_data_entries_in_string(raw_data, &fields);
+		if(entries < 0)
+		{
+			goto fail;
+		}
+		data = t3net_create_data(entries, fields);
+		if(!data)
+		{
+			goto fail;
+		}
+
+		text_pos = 0;
+		text_max = strlen(raw_data) + 1;
+
+		/* read header */
+		current_line = t3net_get_line(raw_data, text_max, &text_pos);
+		if(!current_line)
+		{
+			goto fail;
+		}
+		data->header = current_line;
+
+		while(1)
+		{
+			current_line = t3net_get_line(raw_data, text_max, &text_pos);
+			if(current_line)
+			{
+				/* empty line signifies new entry */
+				l = strlen(current_line);
+				if(l <= 0)
+				{
+					ecount++;
+					field = 0;
+				}
+
+				/* get fields of the current element */
+				else if(ecount >= 0 && ecount < data->entries && field < data->entry[ecount]->fields)
+				{
+					size = l + 1;
+					if(get_temp_element(current_line, &element, size))
+					{
+						/* copy field name */
+						size = strlen(element.name);
+						data->entry[ecount]->field[field]->name = strdup(element.name);
+
+						/* copy field data */
+						size = strlen(element.data);
+						data->entry[ecount]->field[field]->data = strdup(element.data);
+
+						discard_temp_element(&element);
+						field++;
+					}
+				}
+			}
+			else
+			{
+				break;
+			}
+
+			/* get out if we've reached the end of the data */
+			if(text_pos >= text_max)
+			{
+				break;
+			}
+		}
+	}
+	return data;
+
+	fail:
+	{
+		if(data)
+		{
+			t3net_destroy_data(data);
+		}
+		return NULL;
+	}
+}
+
+/* high level API */
+int t3net_download(const char * url, T3NET_ARGUMENTS * arguments, T3NET_POST_DATA * post_data, const char * out_path)
+{
+	char * final_url = NULL;
+	int ret = 0;
+
+	final_url = _t3net_compose_url(url, arguments);
+	if(!final_url)
+	{
+		goto fail;
+	}
+	ret = _t3net_url_runner(final_url, post_data ? post_data->data : NULL, out_path, NULL);
+	free(final_url);
+
+	return ret;
+
+	fail:
+	{
+		if(final_url)
+		{
+			free(final_url);
+		}
+		return 0;
+	}
+}
+
+T3NET_DATA * t3net_get_data(const char * url, T3NET_ARGUMENTS * arguments, T3NET_POST_DATA * post_data)
+{
+	T3NET_DATA * data = NULL;
+	char * final_url = NULL;
+	char * out_data = NULL;
+
+	final_url = _t3net_compose_url(url, arguments);
+	if(!final_url)
+	{
+		goto fail;
+	}
+	if(_t3net_url_runner(final_url, post_data ? post_data->data : NULL, NULL, &out_data))
+	{
+		data = t3net_get_dataset(out_data);
+	}
+	free(final_url);
+
+	return data;
+
+	fail:
+	{
+		if(final_url)
+		{
+			free(final_url);
+		}
+		if(out_data)
+		{
+			free(out_data);
+		}
+		if(data)
+		{
+			t3net_destroy_data(data);
+		}
+		return NULL;
 	}
 }
 
