@@ -1,32 +1,107 @@
 Overview
 --------
 
-T3Net provides code for interacting with a web site from a native program. It
-relies on libcurl to do HTTP requests. T3Net can take specifically formatted
-data and parse it into easily usable data sets.
+T3Net provides code for interacting with a web site from a native program.
+T3Net can take specifically formatted data and parse it into easily usable
+data sets. It uses curl or libcurl to handle HTTP(S) requests to ferry data
+between a web site and a native application.
 
 
 The C Side
 ----------
 
-To get a dataset you simply call t3net_get_data(my_url). You will get a pointer
-to a T3NET_DATA structure in return. This data structure has arrays of entries
-and fields which can be easily utilized in your programs.
+To set up T3Net, you must first initialize it with one of the HTTP(S) handlers.
+Call 't3net_setup_with_curl()' to use the system's build-in (or bundled) curl
+utility. Call 't3net_setup_with_libcurl()' to use libcurl.
 
-If you are retrieving a list of high scores, for instance, you can do something
-like this:
+Now you can utilize 't3ned_download()' to download data/files or
+'t3net_get_data()' to get a 'T3NET_DATA' data set. For example, If you are
+retrieving a list of high scores, for instance, you can do something like this:
 
 T3NET_DATA * score_list;
 int i;
+const char * val;
 
-score_list = t3net_get_data(url_to_score_script);
+score_list = t3net_get_data(url_to_score_script, NULL, NULL);
 if(score_list)
 {
     for(i = 0; i < score_list->entries; i++)
     {
-        printf("%d. %s - %s\n", i + 1, score_list->entry[i]->field[0]->data, score_list->entry[i]->field[1]->data);
+        name = t3net_get_data_entry_field(score_list, i, "name");
+        val = t3net_get_data_entry_field(score_list, i, "score");
+        if(name && val)
+        {
+            printf("%d. %s - %s\n", i + 1, name, score);
+        }
     }
 }
+
+
+C API Reference
+---------------
+
+t3net_download(const char * url,
+               T3NET_ARGUMENTS * arguments,
+               T3NET_POST_DATA * post_data,
+               const char * out_path):
+
+  This function takes 4 arguments. 'url' is the base URL. 'arguments' are the
+  arguments that will be passed through the URL. 'post_data' is the form data
+  that will be sent through HTTP POST data. 'out_path' is the path to where the
+  data will be downloaded. See below for info on how to construct arguments and
+  POST data.
+
+
+t3net_get_data(const char * url,
+               T3NET_ARGUMENTS * arguments,
+               T3NET_POST_DATA * post_data):
+
+  This function takes 3 arguments. 'url' is the base URL. 'arguments' are the
+  arguments that will be passed through the URL. 'post_data' is the form data
+  that will be sent through HTTP POST data. See below for info on how to
+  construct arguments and POST data.
+
+
+T3NET_ARGUMENTS * t3net_create_arguments(void):
+
+  Create an empty arguments list.
+
+
+t3net_add_argument(T3NET_ARGUMENTS * arguments,
+                   conat char * key,
+                   const char * val):
+
+  Add an argument to an arguments list.
+
+
+t3net_destroy_arguments(T3NET_ARGUMENTS * arguments):
+
+  Destroy an arguments list (free it's allocated memory).
+
+
+T3NET_POST_DATA * t3net_create_post_data(void):
+
+  Create a POST data list.
+
+
+t3net_add_post_data(T3NET_POST_DATA * poar_data,
+                    conat char * key,
+                    const char * val):
+
+  Add POST data to a POST data list.
+
+
+t3net_destroy_post_data(T3NET_POST_DATA * post_data):
+
+  Destroy a POST data list (free it's allocated memory).
+
+
+const char * t3net_get_data_entry_field(T3NET_DATA * data,
+                                        int entry,
+                                        const char * field_name);
+
+  Retrieve a value from a data set. Returns 'NULL' if no matching data was
+  found.
 
 
 The PHP Side
