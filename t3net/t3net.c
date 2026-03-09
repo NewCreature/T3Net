@@ -14,185 +14,7 @@ typedef struct
 
 } T3NET_TEMP_ELEMENT;
 
-static char _t3net_curl_command[1024] = {0};
-
-static char t3net_temp_dir[1024] = {0};
-
 static FILE * _t3net_log_file = NULL;
-
-static int _t3net_run_system_command(char * command, const char * log_file)
-{
-	int ret;
-
-	#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
-	
-		STARTUPINFO si = {0};
-		PROCESS_INFORMATION pi = {0};
-		SECURITY_ATTRIBUTES sa;
-		DWORD retvalue;
-		sa.nLength = sizeof(sa);
-		sa.lpSecurityDescriptor = NULL;
-		sa.bInheritHandle = TRUE;
-		HANDLE log_handle = CreateFile(log_file, GENERIC_WRITE, FILE_SHARE_WRITE | FILE_SHARE_READ, &sa, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-		si.cb = sizeof(si);
-		si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
-		si.hStdInput = NULL;
-		si.hStdOutput = log_handle;
-		si.hStdError = log_handle;
-		si.wShowWindow = SW_HIDE;
-		ret = CreateProcess(NULL, command, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi);
-		WaitForSingleObject(pi.hProcess, INFINITE);
-		GetExitCodeProcess(pi.hProcess, &retvalue);
-		if(log_handle)
-		{
-			CloseHandle(log_handle);
-		}
-		ret = retvalue;
-
-	#else
-
-		char final_command[1024];
-		strcpy(final_command, command);
-		if(log_file)
-		{
-			strcat(final_command, " > \"");
-			strcat(final_command, log_file);
-			strcat(final_command, "\"");
-		}
-		ret = system(final_command);
-
-	#endif
-
-	return ret;
-}
-
-static int _t3net_get_post_data_length(char ** post_data)
-{
-	int i;
-	int l = 0;
-
-	if(post_data)
-	{
-		for(i = 0; post_data[i]; i++)
-		{
-			l += strlen(post_data[i]);
-		}
-	}
-	return l;
-}
-
-const char * t3net_get_curl_command(void)
-{
-	#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
-		strcpy(_t3net_curl_command, "./curl.exe");
-	#elif __APPLE__
-		strcpy(_t3net_curl_command, "/usr/bin/curl");
-	#else
-		strcpy(_t3net_curl_command, "LD_LIBRARY_PATH=\"/lib\" curl");
-	#endif
-	return _t3net_curl_command;
-}
-
-static char * _t3net_load_file(const char * fn)
-{
-	char * data = NULL;
-	FILE * fp = NULL;
-	int size = 0;
-
-	fp = fopen(fn, "rb");
-	if(!fp)
-	{
-		goto fail;
-	}
-	fseek(fp, 0, SEEK_END);
-	size = ftell(fp);
-	fclose(fp);
-	fp = NULL;
-
-	data = malloc(size + 1);
-	if(!data)
-	{
-		goto fail;
-	}
-	fp = fopen(fn, "rb");
-	if(!fp)
-	{
-		goto fail;
-	}
-	fread(data, 1, size, fp);
-	fclose(fp);
-	data[size] = 0;
-	remove(fn);
-	return data;
-
-	fail:
-	{
-		if(fp)
-		{
-			fclose(fp);
-		}
-		if(data)
-		{
-			free(data);
-		}
-		return NULL;
-	}
-}
-
-static int _t3net_default_url_runner(const char * url, char ** post_data, const char * out_path, char ** out_data)
-{
-	char * curl_command = malloc(strlen(url) + _t3net_get_post_data_length(post_data) + 1024);
-	char temp_path[1024] = {0};
-	char buf[256];
-	int ret = 0;
-	int i;
-
-	if(curl_command)
-	{
-		if(out_path)
-		{
-			sprintf(temp_path, "%s", out_path);
-		}
-		else
-		{
-			sprintf(temp_path, "%st3net.out", t3net_temp_dir);
-		}
-		strcpy(curl_command, t3net_get_curl_command());
-		strcat(curl_command, " -L");
-		strcat(curl_command, " --connect-timeout");
-		sprintf(buf, " %d", T3NET_TIMEOUT_TIME);
-		strcat(curl_command, buf);
-		strcat(curl_command, " --silent");
-		strcat(curl_command, " --output");
-		strcat(curl_command, " \"");
-		strcat(curl_command, temp_path);
-		strcat(curl_command, "\"");
-		if(post_data)
-		{
-			for(i = 0; post_data[i]; i++)
-			{
-				strcat(curl_command, " -F \"");
-				strcat(curl_command, post_data[i]);
-				strcat(curl_command, "\"");
-			}
-		}
-		strcat(curl_command, " \"");
-		strcat(curl_command, url);
-		strcat(curl_command, "\"");
-
-		ret = !_t3net_run_system_command(curl_command, NULL);
-		free(curl_command);
-		if(out_data)
-		{
-			*out_data = _t3net_load_file(temp_path);
-			if(!*out_data)
-			{
-				ret = 0;
-			}
-		}
-	}
-	return ret;
-}
 
 static void t3net_destroy_data_entry_field(T3NET_DATA_ENTRY_FIELD * field)
 {
@@ -212,6 +34,8 @@ static void t3net_destroy_data_entry_field(T3NET_DATA_ENTRY_FIELD * field)
 
 static int (*_t3net_url_runner)(const char * url, char ** post_data, const char * out_path, char ** out_data) = _t3net_default_url_runner;
 
+void (*_t3net_exit_proc)(void) = NULL;
+
 int t3net_open_log_file(const char * fn)
 {
 	_t3net_log_file = fopen(fn, "wb");
@@ -230,28 +54,20 @@ void t3met_close_log_file(void)
 	}
 }
 
-int t3net_setup(int (*url_runner)(const char * url, char ** post_data, const char * out_path, char ** out_data), const char * temp_dir)
+int _t3net_setup(int (*url_runner)(const char * url, char ** post_data, const char * out_path, char ** out_data), void (*exit_proc)(void))
 {
-	if(url_runner)
-	{
-		_t3net_url_runner = url_runner;
-	}
-	else
-	{
-		_t3net_url_runner = _t3net_default_url_runner;
-	}
-	if(temp_dir)
-	{
-		if(strlen(temp_dir) < 1024)
-		{
-			strcpy(t3net_temp_dir, temp_dir);
-		}
-		else
-		{
-			return 0;
-		}
-	}
+	_t3net_url_runner = url_runner;
+	_t3net_exit_proc = exit_proc;
+
 	return 1;
+}
+
+void t3net_exit(void)
+{
+	if(_t3net_exit_proc)
+	{
+		_t3net_exit_proc();
+	}
 }
 
 T3NET_ARGUMENTS * t3net_create_arguments(void)

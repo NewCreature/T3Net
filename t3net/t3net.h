@@ -48,7 +48,8 @@ typedef struct
 } T3NET_POST_DATA;
 
 /* initialization */
-int t3net_setup(int (*url_runner)(const char * url, char ** post_data, const char * out_path, char ** out_data), const char * temp_dir);
+int _t3net_setup(int (*url_runner)(const char * url, char ** post_data, const char * out_path, char ** out_data), void (*exit_proc)(void));
+void t3net_exit(void);
 
 /* debug logging */
 int t3net_open_log_file(const char * fn);
