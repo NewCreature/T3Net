@@ -43,13 +43,16 @@ C API Reference
 t3net_download(const char * url,
                T3NET_ARGUMENTS * arguments,
                T3NET_POST_DATA * post_data,
-               const char * out_path):
+               const char * out_path
+               char * error_out,
+               int error_size):
 
   This function takes 4 arguments. 'url' is the base URL. 'arguments' are the
   arguments that will be passed through the URL. 'post_data' is the form data
   that will be sent through HTTP POST data. 'out_path' is the path to where the
-  data will be downloaded. See below for info on how to construct arguments and
-  POST data.
+  data will be downloaded. 'error_out' is used to store the error message if
+  the download fails. 'error_size' is the size of 'error_out'. See below for
+  info on how to construct arguments and POST data.
 
 
 t3net_get_data(const char * url,
