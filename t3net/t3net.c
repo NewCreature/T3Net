@@ -15,6 +15,100 @@ typedef struct
 } T3NET_TEMP_ELEMENT;
 
 static FILE * _t3net_log_file = NULL;
+static int (*_t3net_url_runner)(const char * url, const char ** post_data, const char * out_path, char ** out_data) = NULL;
+static void (*_t3net_exit_proc)(void) = NULL;
+
+char * _t3net_load_file(const char * fn)
+{
+	char * data = NULL;
+	FILE * fp = NULL;
+	int size = 0;
+
+	fp = fopen(fn, "rb");
+	if(!fp)
+	{
+		goto fail;
+	}
+	fseek(fp, 0, SEEK_END);
+	size = ftell(fp);
+	fclose(fp);
+	fp = NULL;
+
+	data = malloc(size + 1);
+	if(!data)
+	{
+		goto fail;
+	}
+	fp = fopen(fn, "rb");
+	if(!fp)
+	{
+		goto fail;
+	}
+	fread(data, 1, size, fp);
+	fclose(fp);
+	data[size] = 0;
+	remove(fn);
+	return data;
+
+	fail:
+	{
+		if(fp)
+		{
+			fclose(fp);
+		}
+		if(data)
+		{
+			free(data);
+		}
+		return NULL;
+	}
+}
+
+int _t3net_run_system_command(char * command, const char * log_file)
+{
+	int ret;
+
+	#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
+	
+		STARTUPINFO si = {0};
+		PROCESS_INFORMATION pi = {0};
+		SECURITY_ATTRIBUTES sa;
+		DWORD retvalue;
+		sa.nLength = sizeof(sa);
+		sa.lpSecurityDescriptor = NULL;
+		sa.bInheritHandle = TRUE;
+		HANDLE log_handle = CreateFile(log_file, GENERIC_WRITE, FILE_SHARE_WRITE | FILE_SHARE_READ, &sa, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+		si.cb = sizeof(si);
+		si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+		si.hStdInput = NULL;
+		si.hStdOutput = log_handle;
+		si.hStdError = log_handle;
+		si.wShowWindow = SW_HIDE;
+		ret = CreateProcess(NULL, command, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi);
+		WaitForSingleObject(pi.hProcess, INFINITE);
+		GetExitCodeProcess(pi.hProcess, &retvalue);
+		if(log_handle)
+		{
+			CloseHandle(log_handle);
+		}
+		ret = retvalue;
+
+	#else
+
+		char final_command[1024];
+		strcpy(final_command, command);
+		if(log_file)
+		{
+			strcat(final_command, " > \"");
+			strcat(final_command, log_file);
+			strcat(final_command, "\"");
+		}
+		ret = system(final_command);
+
+	#endif
+
+	return ret;
+}
 
 static void t3net_destroy_data_entry_field(T3NET_DATA_ENTRY_FIELD * field)
 {
@@ -31,10 +125,6 @@ static void t3net_destroy_data_entry_field(T3NET_DATA_ENTRY_FIELD * field)
 		free(field);
 	}
 }
-
-static int (*_t3net_url_runner)(const char * url, char ** post_data, const char * out_path, char ** out_data) = _t3net_default_url_runner;
-
-void (*_t3net_exit_proc)(void) = NULL;
 
 int t3net_open_log_file(const char * fn)
 {
@@ -54,7 +144,7 @@ void t3met_close_log_file(void)
 	}
 }
 
-int _t3net_setup(int (*url_runner)(const char * url, char ** post_data, const char * out_path, char ** out_data), void (*exit_proc)(void))
+int _t3net_setup(int (*url_runner)(const char * url, const char ** post_data, const char * out_path, char ** out_data), void (*exit_proc)(void))
 {
 	_t3net_url_runner = url_runner;
 	_t3net_exit_proc = exit_proc;
@@ -681,7 +771,7 @@ int t3net_http_request(const char * url, T3NET_ARGUMENTS * arguments, T3NET_POST
 	{
 		goto fail;
 	}
-	if(!_t3net_url_runner(final_url, post_data ? post_data->data : NULL, NULL, out_data))
+	if(!_t3net_url_runner(final_url, (const char **)(post_data ? post_data->data : NULL), NULL, out_data))
 	{
 		goto fail;
 	}
@@ -819,8 +909,74 @@ T3NET_DATA * t3net_get_dataset(const char * raw_data)
 	}
 }
 
+static int _t3net_verify_download(const char * path)
+{
+	FILE * fp = NULL;
+	char header[10] = {0};
+	int ret = 0;
+
+	fp = fopen(path, "rb");
+	if(!fp)
+	{
+		goto fail;
+	}
+	if(fread(header, 1, 6, fp) != 6)
+	{
+		goto fail;
+	}
+	ret = strcmp(header, "Error:");
+	fclose(fp);
+
+	return ret;
+
+	fail:
+	{
+		if(fp)
+		{
+			fclose(fp);
+		}
+		return 0;
+	}
+}
+
+static int _t3net_get_download_error(const char * path, char * error_out, int error_size)
+{
+	char * out_data = NULL;
+	int i;
+
+	out_data = _t3net_load_file(path);
+	if(!out_data)
+	{
+		goto fail;
+	}
+	if(strlen(out_data) > 7)
+	{
+		strcpy(error_out, &out_data[7]);
+	}
+	for(i = 0; i < strlen(error_out); i++)
+	{
+		if(error_out[i] == '\r' || error_out[i] == '\n')
+		{
+			error_out[i] = 0;
+			break;
+		}
+	}
+	free(out_data);
+
+	return 1;
+
+	fail:
+	{
+		if(out_data)
+		{
+			free(out_data);
+		}
+		return 0;
+	}
+}
+
 /* high level API */
-int t3net_download(const char * url, T3NET_ARGUMENTS * arguments, T3NET_POST_DATA * post_data, const char * out_path)
+int t3net_download(const char * url, T3NET_ARGUMENTS * arguments, T3NET_POST_DATA * post_data, const char * out_path, char * error_out, int error_size)
 {
 	char * final_url = NULL;
 	int ret = 0;
@@ -830,8 +986,28 @@ int t3net_download(const char * url, T3NET_ARGUMENTS * arguments, T3NET_POST_DAT
 	{
 		goto fail;
 	}
-	ret = _t3net_url_runner(final_url, post_data ? post_data->data : NULL, out_path, NULL);
+	ret = _t3net_url_runner(final_url, (const char **)(post_data ? post_data->data : NULL), out_path, NULL);
 	free(final_url);
+
+	if(ret)
+	{
+		if(!_t3net_verify_download(out_path))
+		{
+			if(error_out)
+			{
+				_t3net_get_download_error(out_path, error_out, error_size);
+			}
+			remove(out_path);
+			ret = 0;
+		}
+	}
+	else
+	{
+		if(error_out)
+		{
+			strcpy(error_out, "Request failed!");
+		}
+	}
 
 	return ret;
 
@@ -856,7 +1032,7 @@ T3NET_DATA * t3net_get_data(const char * url, T3NET_ARGUMENTS * arguments, T3NET
 	{
 		goto fail;
 	}
-	if(_t3net_url_runner(final_url, post_data ? post_data->data : NULL, NULL, &out_data))
+	if(_t3net_url_runner(final_url, (const char **)(post_data ? post_data->data : NULL), NULL, &out_data))
 	{
 		data = t3net_get_dataset(out_data);
 	}

@@ -1,5 +1,7 @@
 #include "t3net.h"
 #include <curl/curl.h>
+#include <string.h>
+#include <stdlib.h>
 
 #define _T3NET_LIBCURL_SPLIT_POST_FAIL   0
 #define _T3NET_LIBCURL_SPLIT_POST_NORMAL 1
@@ -7,19 +9,33 @@
 
 static char * _t3net_libcurl_temp_dir = NULL;
 
-static int _t3net_split_post_data(const char * post_item, char * out_key, chsr * out_val, int out_max)
+static int _get_val_offset(const char * str)
 {
-  int val_offset = strstr(post_item, "=") + 1;
+  int i;
+
+  for(i = 0; i < strlen(str); i++)
+  {
+    if(str[i] == '=')
+    {
+      return i + 1;
+    }
+  }
+  return -1;
+}
+
+static int _t3net_split_post_data(const char * post_item, char * out_key, char * out_val, int out_max)
+{
+  int val_offset = _get_val_offset(post_item);
   int ret = _T3NET_LIBCURL_SPLIT_POST_NORMAL;
 
+  if(val_offset < 0 || val_offset >= out_max - 1)
+  {
+    goto fail;
+  }
   if(post_item[val_offset] == '@')
   {
     val_offset++;
     ret = _T3NET_LIBCURL_SPLIT_POST_FILE;
-  }
-  if(val_offset >= strlen(post_item) || val_offset >= out_max - 1)
-  {
-    goto fail;
   }
   memset(out_key, 0, out_max);
   memcpy(out_key, post_item, val_offset - 2);
@@ -33,7 +49,7 @@ static int _t3net_split_post_data(const char * post_item, char * out_key, chsr *
 
   fail:
   {
-    retnrn _T3NET_LIBCURL_SPLIT_POST_FAIL;
+    return _T3NET_LIBCURL_SPLIT_POST_FAIL;
   }
 }
 
@@ -42,7 +58,7 @@ static size_t _t3net_curl_write_proc(void * ptr, size_t size, size_t n, void * o
     return fwrite(ptr, size, n, (FILE *)out);
 }
 
-static int _t3net_libcurl_url_runner(const char * url, char ** post_data, const char * out_path, char ** out_data)
+static int _t3net_libcurl_url_runner(const char * url, const char ** post_data, const char * out_path, char ** out_data)
 {
   CURL * curl = NULL;
   CURLcode ret;
@@ -51,6 +67,7 @@ static int _t3net_libcurl_url_runner(const char * url, char ** post_data, const 
   char out_key[1024];
   char out_val[1024];
   int split_ret;
+  int i;
 
   curl = curl_easy_init();
   if(!curl)
@@ -70,16 +87,16 @@ static int _t3net_libcurl_url_runner(const char * url, char ** post_data, const 
       split_ret = _t3net_split_post_data(post_data[i], out_key, out_val, 1024);
       switch(split_ret)
       {
-        _T3NET_LIBCURL_SPLIT_POST_NORMAL:
+        case _T3NET_LIBCURL_SPLIT_POST_NORMAL:
         {
           curl_mime_name(post_field, out_key);
           curl_mime_data(post_field, out_val, CURL_ZERO_TERMINATED);
           break;
         }
-        _T3NET_LIBCURL_SPLIT_POST_FILE:
+        case _T3NET_LIBCURL_SPLIT_POST_FILE:
         {
           curl_mime_name(post_field, out_key);
-          curl_mime_filedata(field, out_val);
+          curl_mime_filedata(post_field, out_val);
           break;
         }
         default:
@@ -104,15 +121,15 @@ static int _t3net_libcurl_url_runner(const char * url, char ** post_data, const 
   curl_easy_cleanup(curl);
   if(post_form)
   {
-    curl_mime_free(post_form)
+    curl_mime_free(post_form);
   }
   return 1;
 
   fail:
   {
-    if(part_form)
+    if(post_form)
     {
-      curl_mime_free(post_form)
+      curl_mime_free(post_form);
     }
     if(curl)
     {
@@ -125,9 +142,9 @@ static int _t3net_libcurl_url_runner(const char * url, char ** post_data, const 
 
 static void _t3net_libcurl_exit_proc(void)
 {
-  if(_t3net_curl_temp_dir)
+  if(_t3net_libcurl_temp_dir)
   {
-    free(_t3net_curl_temp_dir);
+    free(_t3net_libcurl_temp_dir);
   }
   curl_global_cleanup();
 }
@@ -140,13 +157,13 @@ int t3net_setup_with_libcurl(const char * temp_dir)
   }
   if(temp_dir)
   {
-    _t3net_curl_temp_dir = strdup(temp_dir);
-    if(!_t3net_curl_temp_dir)
+    _t3net_libcurl_temp_dir = strdup(temp_dir);
+    if(!_t3net_libcurl_temp_dir)
     {
       goto fail;
     }
   }
-  return _t3net_setup(_t3net_curl_url_runner, _t3net_curl_exit_proc);
+  return _t3net_setup(_t3net_libcurl_url_runner, _t3net_libcurl_exit_proc);
 
   fail:
   {

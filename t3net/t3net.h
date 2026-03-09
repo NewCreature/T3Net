@@ -48,8 +48,11 @@ typedef struct
 } T3NET_POST_DATA;
 
 /* initialization */
-int _t3net_setup(int (*url_runner)(const char * url, char ** post_data, const char * out_path, char ** out_data), void (*exit_proc)(void));
-void t3net_exit(void);
+int _t3net_setup(int (*url_runner)(const char * url, const char ** post_data, const char * out_path, char ** out_data), void (*exit_proc)(void));
+
+/* utility */
+char * _t3net_load_file(const char * fn);
+int _t3net_run_system_command(char * command, const char * log_file);
 
 /* debug logging */
 int t3net_open_log_file(const char * fn);
@@ -70,7 +73,7 @@ int t3net_http_request(const char * url, T3NET_ARGUMENTS * arguments, T3NET_POST
 T3NET_DATA * t3net_get_dataset(const char * raw_data);
 
 /* high level API */
-int t3net_download(const char * url, T3NET_ARGUMENTS * arguments, T3NET_POST_DATA * post_data, const char * out_path);
+int t3net_download(const char * url, T3NET_ARGUMENTS * arguments, T3NET_POST_DATA * post_data, const char * out_path, char * error_out, int error_size);
 T3NET_DATA * t3net_get_data(const char * url, T3NET_ARGUMENTS * arguments, T3NET_POST_DATA * post_data);
 void t3net_destroy_data(T3NET_DATA * data);
 
